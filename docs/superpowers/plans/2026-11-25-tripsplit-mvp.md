@@ -293,7 +293,7 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
 - Consumes: `BalanceRow`, `Transfer` (Task 2).
 - Produces: `export function settle(rows: Pick<BalanceRow, 'memberId' | 'balance'>[], memberOrder: string[]): Transfer[];`
 
-- [ ] **Step 1: Viết test thất bại**
+- [x] **Step 1: Viết test thất bại**
   ```ts
   const rows = (o: Record<string, number>) => Object.entries(o).map(([memberId, balance]) => ({ memberId, balance }));
   it('sheet example → 3 transfers to Sang', () => {
@@ -327,10 +327,10 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
     expect(settle([...x].reverse(), order)).toEqual(settle(x, order));
   });
   ```
-- [ ] **Step 2:** `npm test -- src/lib/settle` → FAIL.
-- [ ] **Step 3:** Cài `settle` theo §8.4: (1) tách nợ/có, bỏ 0; (2) khớp chính xác: duyệt nợ theo thứ tự [số tiền giảm dần, hòa theo `memberOrder`], với mỗi nợ tìm có đầu tiên (cùng cách sắp) bằng đúng số tiền → ghép, loại cả hai; (3) tham lam: lặp, sắp lại hai danh sách theo cùng khóa, ghép đầu ↔ đầu với `min`, trừ, bỏ phần tử về 0.
-- [ ] **Step 4:** `npm test -- src/lib/settle` → PASS.
-- [ ] **Step 5:** Commit `feat(lib): settlement plan with exact-match and greedy`.
+- [x] **Step 2:** `npm test -- src/lib/settle` → FAIL.
+- [x] **Step 3:** Cài `settle` theo §8.4: (1) tách nợ/có, bỏ 0; (2) khớp chính xác: duyệt nợ theo thứ tự [số tiền giảm dần, hòa theo `memberOrder`], với mỗi nợ tìm có đầu tiên (cùng cách sắp) bằng đúng số tiền → ghép, loại cả hai; (3) tham lam: lặp, sắp lại hai danh sách theo cùng khóa, ghép đầu ↔ đầu với `min`, trừ, bỏ phần tử về 0.
+- [x] **Step 4:** `npm test -- src/lib/settle` → PASS.
+- [x] **Step 5:** Commit `feat(lib): settlement plan with exact-match and greedy`.
 
 ---
 
