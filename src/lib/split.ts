@@ -106,18 +106,19 @@ export function computeShares(input: SplitInput): SplitResult {
     fixedSum += fixedValue
   }
 
-  // 2. Gom nhóm người chia phần dư (flex) theo đúng thứ tự memberOrder để 1đ lẻ không nhảy giữa preview và DB
+  // 2. Gom nhóm người chia phần dư (flex) theo đúng thứ tự memberOrder để 1đ lẻ không nhảy giữa preview và DB.
+  // Dùng Object.hasOwn để tránh nhầm thuộc tính kế thừa từ Object.prototype (vd: 'constructor', 'toString') là có số cố định.
   const flex: string[] = []
   const flexSeen = new Set<string>()
   for (const id of memberOrder) {
-    if (participantSet.has(id) && fixedAmounts[id] === undefined && !flexSeen.has(id)) {
+    if (participantSet.has(id) && !Object.hasOwn(fixedAmounts, id) && !flexSeen.has(id)) {
       flexSeen.add(id)
       flex.push(id)
     }
   }
   // Phòng vệ: nếu có thành viên hợp lệ nhưng chưa có mặt trong memberOrder thì nối tiếp vào cuối
   for (const id of uniqueParticipants) {
-    if (fixedAmounts[id] === undefined && !flexSeen.has(id)) {
+    if (!Object.hasOwn(fixedAmounts, id) && !flexSeen.has(id)) {
       flexSeen.add(id)
       flex.push(id)
     }
@@ -143,7 +144,8 @@ export function computeShares(input: SplitInput): SplitResult {
 
   const shares: Record<string, VND> = {}
   for (const id of uniqueParticipants) {
-    if (fixedAmounts[id] !== undefined) {
+    // Chỉ lấy thuộc tính tự thân để không đọc nhầm thuộc tính prototype của Object
+    if (Object.hasOwn(fixedAmounts, id)) {
       shares[id] = fixedAmounts[id]
     }
   }

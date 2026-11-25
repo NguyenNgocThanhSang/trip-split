@@ -94,6 +94,16 @@ describe('computeShares', () => {
     ).toBe(100000)
   })
 
+  it('không nhầm mã thành viên trùng thuộc tính Object.prototype (như constructor) thành số cố định', () => {
+    const r = computeShares({
+      amount: 100000,
+      participantIds: ['sang', 'constructor'],
+      fixedAmounts: {},
+      memberOrder: ['sang', 'constructor'],
+    })
+    expect(r).toEqual({ ok: true, shares: { sang: 50000, constructor: 50000 } })
+  })
+
   it.each([
     [{ amount: 0, participantIds: ['sang'], fixedAmounts: {} }, 'INVALID_AMOUNT'],
     [{ amount: 100.5, participantIds: ['sang'], fixedAmounts: {} }, 'INVALID_AMOUNT'],
