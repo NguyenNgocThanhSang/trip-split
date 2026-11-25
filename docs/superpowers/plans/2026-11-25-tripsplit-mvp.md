@@ -235,7 +235,7 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   ```
   `rows` theo đúng thứ tự `memberIds`. `totalSpent` = tổng `amount` của các khoản hợp lệ. Một khoản là **không hợp lệ** nếu `computeShares` lỗi **hoặc** `payerId`/bất kỳ participant nào không thuộc `memberIds`. Payment có `fromId`/`toId` ngoài `memberIds` bị bỏ qua.
 
-- [ ] **Step 1: Viết test thất bại**
+- [x] **Step 1: Viết test thất bại**
   Fixture `sheet` — dữ liệu Google Sheet mẫu, thành viên `['sang','chung','mo','phung']`, Sang ứng tất cả:
   Nhà nghỉ 575.000 chia đều 4; Cháo mực 260.000 chia đều 4; Tàu hủ 80.000 chia đều 4; Ăn sáng 190.000 với `{ chung: 45000, mo: 45000 }`.
   ```ts
@@ -276,10 +276,10 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
     expect(r.rows.map(x => x.balance)).toEqual([826250, -273750, -273750, -278750]);
   });
   ```
-- [ ] **Step 2:** `npm test -- src/lib/balances` → FAIL.
-- [ ] **Step 3:** Cài `computeBalances` theo §8.3 và quy tắc hợp lệ ở Interfaces.
-- [ ] **Step 4:** `npm test -- src/lib/balances` → PASS.
-- [ ] **Step 5:** Commit `feat(lib): per-member balances with payment ledger`.
+- [x] **Step 2:** `npm test -- src/lib/balances` → FAIL.
+- [x] **Step 3:** Cài `computeBalances` theo §8.3 và quy tắc hợp lệ ở Interfaces.
+- [x] **Step 4:** `npm test -- src/lib/balances` → PASS.
+- [x] **Step 5:** Commit `feat(lib): per-member balances with payment ledger`.
 
 ---
 
