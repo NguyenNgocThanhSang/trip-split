@@ -103,7 +103,7 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   export function todayISO(): string;                   // theo giờ máy, "YYYY-MM-DD"
   ```
 
-- [ ] **Step 1: Viết test thất bại**
+- [x] **Step 1: Viết test thất bại**
   ```ts
   describe('formatVND', () => {
     it('formats', () => {
@@ -132,7 +132,7 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
       expect(parseVND(s)).toBeNull());
     it('allowZero', () => expect(parseVND('0', { allowZero: true })).toBe(0));
     it('odd whitespace and signs', () => {           // Review Focus #3
-      expect(parseVND(' 190.000 đ ')).toBe(190000);
+      expect(parseVND(' 190.000 đ ')).toBe(190000);
       expect(parseVND(' 190k ')).toBe(190000);
       expect(parseVND('+190k')).toBe(190000);
       expect(parseVND('1.5')).toBeNull();
@@ -140,10 +140,10 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   });
   ```
   `date.test.ts`: `formatDateVN('2026-12-20') === '20/12/2026'`; `todayISO()` khớp `/^\d{4}-\d{2}-\d{2}$/`.
-- [ ] **Step 2:** `npm test -- src/lib/money src/lib/date` → FAIL (module không tồn tại).
-- [ ] **Step 3:** Cài `formatVND`/`formatSignedVND` bằng regex `\B(?=(\d{3})+(?!\d))` (không dùng `Intl` để không phụ thuộc locale máy). Cài `parseVND` đúng quy tắc §8.1: chuẩn hóa (`trim`, `toLowerCase`, thay mọi khoảng trắng Unicode `\s` kể cả NBSP thành space, bỏ dấu `+` đầu, bỏ hậu tố `đ|d|vnd|vnđ`), có `-` → null; rồi thử lần lượt các regex: `XtrYk`, `XtrY`, `X[.,]Ytr`, `XkY`, `X[.,]Yk`, số nguyên thuần `^\d+$`, số có phân nhóm `^\d{1,3}([., ]\d{3})+$`. Hậu tố triệu chấp nhận `tr|triệu|trieu|m`. Phần sau hậu tố đọc như chữ số thập phân (`'0.' + frac`). `Math.round`, kiểm biên.
-- [ ] **Step 4:** `npm test -- src/lib` → PASS.
-- [ ] **Step 5:** Commit `feat(lib): VND format/parse and date helpers`.
+- [x] **Step 2:** `npm test -- src/lib/money src/lib/date` → FAIL (module không tồn tại).
+- [x] **Step 3:** Cài `formatVND`/`formatSignedVND` bằng regex `\B(?=(\d{3})+(?!\d))` (không dùng `Intl` để không phụ thuộc locale máy). Cài `parseVND` đúng quy tắc §8.1: chuẩn hóa (`trim`, `toLowerCase`, thay mọi khoảng trắng Unicode `\s` kể cả NBSP thành space, bỏ dấu `+` đầu, bỏ hậu tố `đ|d|vnd|vnđ`), có `-` → null; rồi thử lần lượt các regex: `XtrYk`, `XtrY`, `X[.,]Ytr`, `XkY`, `X[.,]Yk`, số nguyên thuần `^\d+$`, số có phân nhóm `^\d{1,3}([., ]\d{3})+$`. Hậu tố triệu chấp nhận `tr|triệu|trieu|m`. Phần sau hậu tố đọc như chữ số thập phân (`'0.' + frac`). `Math.round`, kiểm biên.
+- [x] **Step 4:** `npm test -- src/lib` → PASS.
+- [x] **Step 5:** Commit `feat(lib): VND format/parse and date helpers`.
 
 ---
 
