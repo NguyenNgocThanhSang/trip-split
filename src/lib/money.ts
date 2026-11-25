@@ -10,13 +10,16 @@ export const MAX_VND: VND = 1_000_000_000
 /**
  * Định dạng số nguyên VND thành chuỗi hiển thị chuẩn Việt Nam (`190.000đ`).
  * Dùng regex chèn dấu `.` thay vì `Intl.NumberFormat` để đảm bảo hiển thị đồng nhất trên mọi thiết bị.
+ * Trả về `"—"` nếu đầu vào không hữu hạn (`NaN`, `Infinity`) để tránh che giấu lỗi tính toán thành `"0đ"`.
  *
  * @param n - Số tiền nguyên (VND)
- * @returns Chuỗi tiền đã định dạng, ví dụ `"190.000đ"` hoặc `"-50.000đ"`
+ * @returns Chuỗi tiền đã định dạng, ví dụ `"190.000đ"`, `"-50.000đ"`, hoặc `"—"` nếu `n` không hữu hạn
  * @example
  * formatVND(190000) // "190.000đ"
  */
 export function formatVND(n: VND): string {
+  // Chặn NaN/Infinity sớm vì `Math.round(NaN) || 0` sẽ biến lỗi tính toán thành "0đ" (trông như đã hết nợ)
+  if (!Number.isFinite(n)) return '—'
   // Làm tròn phòng vệ và chuẩn hóa -0 về 0 để không bao giờ hiển thị "-0đ"
   const rounded = Math.round(n) || 0
   const sign = rounded < 0 ? '-' : ''
@@ -27,14 +30,16 @@ export function formatVND(n: VND): string {
 }
 
 /**
- * Định dạng số dư VND kèm dấu `+` cho số dương, `-` cho số âm và `0đ` khi cân bằng.
+ * Định dạng số dư VND kèm dấu `+` cho số dương, `-` cho số âm, `0đ` khi cân bằng và `"—"` nếu không hữu hạn.
  *
  * @param n - Số dư nguyên (VND)
- * @returns Chuỗi tiền có dấu ở đầu nếu khác 0
+ * @returns Chuỗi tiền có dấu ở đầu nếu khác 0, hoặc `"—"` nếu `n` không hữu hạn
  * @example
  * formatSignedVND(826250) // "+826.250đ"
  */
 export function formatSignedVND(n: VND): string {
+  // Không để lỗi tính toán bị hiển thị nhầm thành "0đ" (đã cân bằng)
+  if (!Number.isFinite(n)) return '—'
   const rounded = Math.round(n) || 0
   if (rounded > 0) return `+${formatVND(rounded)}`
   return formatVND(rounded)
@@ -51,8 +56,8 @@ export function formatSignedVND(n: VND): string {
  * parseVND('1tr2') // 1200000
  */
 export function parseVND(input: string, opts?: { allowZero?: boolean }): VND | null {
-  // 1. Chuẩn hóa khoảng trắng (gồm cả NBSP từ iOS/Zalo), chuyển chữ thường và kiểm tra dấu âm
-  let s = input.replace(/\s+/g, ' ').trim().toLowerCase()
+  // 1. Chuẩn hóa Unicode NFD -> NFC (tránh lỗi text dán từ macOS/Word), gộp khoảng trắng (gồm NBSP), chuyển chữ thường và kiểm dấu âm
+  let s = input.normalize('NFC').replace(/\s+/g, ' ').trim().toLowerCase()
   if (!s || s.includes('-')) return null
 
   // Bỏ dấu '+' đầu và các hậu tố đơn vị tiền phổ biến ở cuối chuỗi

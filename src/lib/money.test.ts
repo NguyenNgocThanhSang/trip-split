@@ -13,6 +13,12 @@ describe('formatVND', () => {
     // Tổng chi mẫu trong Google Sheet (575k + 260k + 80k + 190k)
     expect(formatVND(1105000)).toBe('1.105.000đ')
   })
+
+  it('trả về dấu gạch ngang "—" khi giá trị không hữu hạn (NaN, Infinity)', () => {
+    expect(formatVND(NaN)).toBe('—')
+    expect(formatVND(Infinity)).toBe('—')
+    expect(formatVND(-Infinity)).toBe('—')
+  })
 })
 
 describe('formatSignedVND', () => {
@@ -21,6 +27,11 @@ describe('formatSignedVND', () => {
     expect(formatSignedVND(826250)).toBe('+826.250đ')
     expect(formatSignedVND(-273750)).toBe('-273.750đ')
     expect(formatSignedVND(0)).toBe('0đ')
+  })
+
+  it('trả về dấu gạch ngang "—" khi giá trị không hữu hạn (NaN, Infinity)', () => {
+    expect(formatSignedVND(NaN)).toBe('—')
+    expect(formatSignedVND(Infinity)).toBe('—')
   })
 })
 
@@ -70,5 +81,15 @@ describe('parseVND', () => {
     expect(parseVND(' 190k ')).toBe(190000)
     expect(parseVND('+190k')).toBe(190000)
     expect(parseVND('1.5')).toBeNull()
+  })
+
+  it('chuẩn hóa chuỗi Unicode dạng tách dấu NFD (dán từ macOS/Word) sang NFC', () => {
+    // Chữ "triệu" viết ở dạng NFD: e + dấu nặng (\u0323) + dấu mũ (\u0302)
+    expect(parseVND('1 trie\u0323\u0302u')).toBe(1000000)
+  })
+
+  it('coi dấu chấm trước hậu tố k/tr là dấu thập phân theo DESIGN.md §8.1', () => {
+    // Dấu "." trước hậu tố được hiểu là thập phân (1.000k = 1 * 1000); UI sẽ có preview để người dùng thấy ngay
+    expect(parseVND('1.000k')).toBe(1000)
   })
 })
