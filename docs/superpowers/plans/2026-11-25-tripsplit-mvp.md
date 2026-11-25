@@ -167,7 +167,7 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   }): SplitResult;
   ```
 
-- [ ] **Step 1: Viết test thất bại**
+- [x] **Step 1: Viết test thất bại**
   ```ts
   const order = ['sang', 'chung', 'mo', 'phung'];
   const sum = (r: SplitResult) => r.ok ? Object.values(r.shares).reduce((a, b) => a + b, 0) : NaN;
@@ -213,10 +213,10 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
     if (!r.ok) { expect(r.error).toBe(error); expect(r.message.length).toBeGreaterThan(0); }
   });
   ```
-- [ ] **Step 2:** `npm test -- src/lib/split` → FAIL.
-- [ ] **Step 3:** Cài `computeShares` theo §8.2: kiểm lỗi theo thứ tự trong bảng test; `flex` sắp theo `memberOrder` (id không có trong `memberOrder` nối cuối theo thứ tự xuất hiện); `base`/`extra` chia nguyên. `message` tiếng Việt, vd `FIXED_EXCEEDS_TOTAL` → `"Tổng số tiền riêng (200.000đ) vượt quá thành tiền (190.000đ)"` (dùng `formatVND`).
-- [ ] **Step 4:** `npm test -- src/lib/split` → PASS.
-- [ ] **Step 5:** Commit `feat(lib): expense split with fixed shares and exact rounding`.
+- [x] **Step 2:** `npm test -- src/lib/split` → FAIL.
+- [x] **Step 3:** Cài `computeShares` theo §8.2: kiểm lỗi theo thứ tự trong bảng test; `flex` sắp theo `memberOrder` (id không có trong `memberOrder` nối cuối theo thứ tự xuất hiện); `base`/`extra` chia nguyên. `message` tiếng Việt, vd `FIXED_EXCEEDS_TOTAL` → `"Tổng số tiền riêng (200.000đ) vượt quá thành tiền (190.000đ)"` (dùng `formatVND`).
+- [x] **Step 4:** `npm test -- src/lib/split` → PASS.
+- [x] **Step 5:** Commit `feat(lib): expense split with fixed shares and exact rounding`.
 
 ---
 
