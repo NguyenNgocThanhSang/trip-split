@@ -1,5 +1,7 @@
 /**
  * Tiện ích gộp class CSS cho các component UI.
+ * File này được giữ lại để `shadcn/ui` tham chiếu qua `aliases.utils` trong `components.json`
+ * (các component preset `radix-nova` hiện import trực tiếp từ package `"cn"`).
  * Hàm thuần — không import React hay Firebase.
  */
 import { cn as baseCn } from 'cn'

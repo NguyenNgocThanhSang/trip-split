@@ -1,3 +1,7 @@
+/**
+ * Cấu hình ESLint (flat config) cho dự án TripSplit.
+ * Kích hoạt kiểm tra TypeScript, React Hooks và React Refresh trên toàn bộ mã nguồn.
+ */
 import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
@@ -19,7 +23,8 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
-  // Bỏ qua cảnh báo export variants kèm component ở thư mục sinh bởi shadcn/ui
+  // Tắt cảnh báo export variants kèm component ở src/components/ui vì thư mục này do shadcn/ui
+  // sinh tự động và theo quy ước dự án không chỉnh sửa tay vào các file bên trong.
   {
     files: ['src/components/ui/**/*.{ts,tsx}'],
     rules: {
