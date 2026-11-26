@@ -578,11 +578,11 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   ```
   `<AdminGuard>` bọc mọi route `/admin/*` trừ `/admin`: `loading` → Skeleton; `signed-out`/`not-admin` → `<Navigate to="/admin" />`.
 
-- [ ] **Step 1:** Test `adminStateFor`: `null` → `signed-out`; uid khớp → `admin`; uid khác → `not-admin` kèm email.
-- [ ] **Step 2:** `npm test -- src/data/auth` → FAIL.
-- [ ] **Step 3:** Cài `auth.ts`, `AdminGuard`, `AdminLogin` (nút "Đăng nhập bằng Google"; `admin` → `Navigate` tới `/admin/trips`; `not-admin` → "Tài khoản này không có quyền admin" + nút đăng xuất; lỗi popup → toast tiếng Việt), `HomePage` (lời chào + link `/admin`), `NotFound`. Gắn vào `App.tsx`.
-- [ ] **Step 4:** `npm test` PASS. Thủ công: `npm run emulators` + `npm run dev` (`VITE_USE_EMULATOR=true`, `VITE_ADMIN_UID` để trống) → đăng nhập bằng tài khoản giả của Auth emulator → thấy "không có quyền"; copy UID tài khoản giả từ Emulator UI (localhost:4000) vào `.env.local` và vào `firestore.rules` **bản local** → đăng nhập lại → vào `/admin/trips`.
-- [ ] **Step 5:** Commit `feat(admin): google sign-in and admin guard`.
+- [x] **Step 1:** Test `adminStateFor`: `null` → `signed-out`; uid khớp → `admin`; uid khác → `not-admin` kèm email.
+- [x] **Step 2:** `npm test -- src/data/auth` → FAIL.
+- [x] **Step 3:** Cài `auth.ts`, `AdminGuard`, `AdminLogin` (nút "Đăng nhập bằng Google"; `admin` → `Navigate` tới `/admin/trips`; `not-admin` → "Tài khoản này không có quyền admin" + nút đăng xuất; lỗi popup → toast tiếng Việt), `HomePage` (lời chào + link `/admin`), `NotFound`. Gắn vào `App.tsx`.
+- [x] **Step 4:** `npm test` PASS. Thủ công: `npm run emulators` + `npm run dev` (`VITE_USE_EMULATOR=true`, `VITE_ADMIN_UID` để trống) → đăng nhập bằng tài khoản giả của Auth emulator → thấy "không có quyền"; copy UID tài khoản giả từ Emulator UI (localhost:4000) vào `.env.local` và vào `firestore.rules` **bản local** → đăng nhập lại → vào `/admin/trips`.
+- [x] **Step 5:** Commit `feat(admin): google sign-in and admin guard`.
 
 ---
 
