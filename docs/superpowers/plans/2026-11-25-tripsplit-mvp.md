@@ -696,16 +696,16 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   ```
   `canMarkPaid = admin || !trip.locked`; `canUndo(p) = admin || (!trip.locked && p.markedBy === 'guest')`.
 
-- [ ] **Step 1: Viết test thất bại**
+- [x] **Step 1: Viết test thất bại**
   - `SettlementList`: giao dịch có `me` (là `fromId` hoặc `toId`) đứng đầu, còn lại giữ thứ tự; danh sách rỗng → "🎉 Cả nhóm đã thanh toán xong!"; `canMarkPaid=false` → không có nút "Đã chuyển".
   - `QrSheet`: người nhận có STK → `<img>` có `src` bằng `buildVietQrUrl(...)` và `referrerpolicy="no-referrer"`; bắn sự kiện `error` trên ảnh → ảnh biến mất, hiện các dòng Ngân hàng/STK/Chủ TK/Số tiền/Nội dung, mỗi dòng một nút Copy (mock `navigator.clipboard.writeText`, bấm Copy STK → gọi với `'0123456789'`); người nhận không có STK → "Người nhận chưa có thông tin ngân hàng"; `hasStaticQr` → có tab "QR MoMo" và chỉ gọi `getMemberQr` khi bấm tab.
   - `MarkPaidSheet`: mặc định số tiền = `transfer.amount`; sửa thành `200k` → `onConfirm(200000, '')`; nhập `300k` (> gợi ý) → hiện cảnh báo "Số tiền lớn hơn số cần trả" nhưng vẫn cho xác nhận; **`MarkPaidSheet submits once`** — click 2 lần liên tiếp khi `onConfirm` còn pending → gọi đúng 1 lần (Review Focus #1).
-- [ ] **Step 2:** `npm test -- src/components` → FAIL ở 3 file mới.
-- [ ] **Step 3:** Cài 4 component theo §9. Nội dung chuyển khoản = `defaultTransferNote(from.name, tripName)`.
-- [ ] **Step 4:** Nối vào `TripPage`: tab Tổng kết = thẻ của tôi → `SettlementList` → `SummaryTable` → `PaymentsHistory`. Đọc `?pay=` một lần khi dữ liệu sẵn sàng: `parsePayParam` → tìm trong `transfers` → có thì mở `QrSheet`, không có thì bỏ qua và xóa tham số khỏi URL (`setSearchParams`, `replace: true`). Thêm test `ignores stale pay link` (Review Focus #5) vào `src/pages/TripPage.test.tsx` với data hooks mock: URL `?pay=chung.sang` khi `transfers` rỗng → không có dialog nào mở.
-- [ ] **Step 5:** `npm test` → PASS.
-- [ ] **Step 6:** Thủ công: với dữ liệu sheet mẫu, Chung bấm "Đã chuyển" đủ → Chung biến khỏi kế hoạch; Mơ trả `200k` → kế hoạch còn Mơ → Sang `73.750đ`; Hoàn tác → trở lại; mở `/t/<id>?pay=mo.sang` → QR sheet mở đúng người.
-- [ ] **Step 7:** Commit `feat(trip): settlement plan, VietQR sheet, payment ledger UI`.
+- [x] **Step 2:** `npm test -- src/components` → FAIL ở 3 file mới.
+- [x] **Step 3:** Cài 4 component theo §9. Nội dung chuyển khoản = `defaultTransferNote(from.name, tripName)`.
+- [x] **Step 4:** Nối vào `TripPage`: tab Tổng kết = thẻ của tôi → `SettlementList` → `SummaryTable` → `PaymentsHistory`. Đọc `?pay=` một lần khi dữ liệu sẵn sàng: `parsePayParam` → tìm trong `transfers` → có thì mở `QrSheet`, không có thì bỏ qua và xóa tham số khỏi URL (`setSearchParams`, `replace: true`). Thêm test `ignores stale pay link` (Review Focus #5) vào `src/pages/TripPage.test.tsx` với data hooks mock: URL `?pay=chung.sang` khi `transfers` rỗng → không có dialog nào mở.
+- [x] **Step 5:** `npm test` → PASS.
+- [x] **Step 6:** Thủ công: với dữ liệu sheet mẫu, Chung bấm "Đã chuyển" đủ → Chung biến khỏi kế hoạch; Mơ trả `200k` → kế hoạch còn Mơ → Sang `73.750đ`; Hoàn tác → trở lại; mở `/t/<id>?pay=mo.sang` → QR sheet mở đúng người.
+- [x] **Step 7:** Commit `feat(trip): settlement plan, VietQR sheet, payment ledger UI`.
 
 ---
 

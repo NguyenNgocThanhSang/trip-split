@@ -1,13 +1,12 @@
 /**
  * Trang chuyến đi công khai `/t/:tripId` dành cho tất cả thành viên và quản trị viên.
- * Tính số dư và kế hoạch thanh toán bằng `computeBalances`/`settle`, hỗ trợ xem offline, chọn "Bạn là ai",
- * xem bảng tổng kết và thêm/sửa/xóa khoản chi tiêu theo đúng quyền từ `firestore.rules`.
+ * Tính số dư và kế hoạch thanh toán bằng `computeBalances`/`settle`, hỗ trợ xem offline,
+ * chọn "Bạn là ai", thêm/sửa/xóa chi tiêu, quét VietQR/MoMo, ghi nhận thanh toán và deep-link `?pay=`.
  */
-import { useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
-  ArrowRight,
   Calendar,
   Copy,
   Edit3,
@@ -20,8 +19,12 @@ import {
 import { toast } from 'sonner'
 import { ExpenseForm } from '@/components/ExpenseForm'
 import { ExpenseList } from '@/components/ExpenseList'
+import { MarkPaidSheet } from '@/components/MarkPaidSheet'
 import { OfflineBanner } from '@/components/OfflineBanner'
+import { PaymentsHistory } from '@/components/PaymentsHistory'
+import { QrSheet } from '@/components/QrSheet'
 import { ResponsiveModal } from '@/components/ResponsiveModal'
+import { SettlementList } from '@/components/SettlementList'
 import { SummaryTable } from '@/components/SummaryTable'
 import { WhoAmI } from '@/components/WhoAmI'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -45,14 +48,21 @@ import {
   useExpenses,
 } from '@/data/expenses'
 import { db } from '@/data/firebase'
-import { hasPendingWrites, usePayments } from '@/data/payments'
+import {
+  addPayment,
+  deletePayment,
+  hasPendingWrites,
+  usePayments,
+} from '@/data/payments'
 import { updateTrip, useTrip } from '@/data/trips'
-import type { Expense, Trip } from '@/data/types'
+import type { Expense, Payment, Trip } from '@/data/types'
 import { useMe } from '@/hooks/useMe'
 import { computeBalances } from '@/lib/balances'
 import { formatDateVN } from '@/lib/date'
 import { formatVND } from '@/lib/money'
+import { buildPersonalReminder, parsePayParam } from '@/lib/reminder'
 import { settle } from '@/lib/settle'
+import type { Transfer, VND } from '@/lib/types'
 
 /**
  * Kiểm tra lỗi Firestore trả về mã `permission-denied` để hiện thông báo đúng ngữ cảnh.
@@ -90,14 +100,15 @@ function formatTripDates(startDate?: string, endDate?: string): string | null {
 /**
  * Giao diện chính của trang chuyến đi `/t/:tripId` sau khi tải thành công `Trip`.
  *
- * @param props - Document `trip` và danh sách `expenses`, `payments` đã đồng bộ
- * @returns Trang chuyến đi gồm OfflineBanner, Header, Tabs (Tổng kết & Chi tiêu), modal WhoAmI và ExpenseForm
+ * @param props - Document `trip`, trạng thái đồng bộ chi tiêu/thanh toán và các dữ liệu đã tính sẵn
+ * @returns Trang chuyến đi đầy đủ tab Tổng kết & Thanh toán, Chi tiêu, QR và xác nhận thanh toán
  */
 function TripLoadedView({
   trip,
   isAdmin,
+  dataReady,
   expenses,
-  paymentsCount,
+  payments,
   rows,
   invalidExpenseIds,
   totalSpent,
@@ -105,34 +116,68 @@ function TripLoadedView({
 }: {
   trip: Trip
   isAdmin: boolean
+  dataReady: boolean
   expenses: Expense[]
-  paymentsCount: number
+  payments: Payment[]
   rows: ReturnType<typeof computeBalances>['rows']
   invalidExpenseIds: string[]
-  totalSpent: number
-  transfers: ReturnType<typeof settle>
+  totalSpent: VND
+  transfers: Transfer[]
 }) {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { me, setMe } = useMe(trip.id, trip.memberIds)
 
   const [whoAmIOpen, setWhoAmIOpen] = useState(false)
   const [dismissedWhoAmITripId, setDismissedWhoAmITripId] = useState<string | null>(null)
+  // Nếu mở từ deep-link `?pay=` thì không tự bật hộp thoại "Bạn là ai" đè lên luồng thanh toán
+  const [openedWithPayParam] = useState(() => Boolean(searchParams.get('pay')))
+  const [payLinkHandled, setPayLinkHandled] = useState(false)
+
   const [expenseModalOpen, setExpenseModalOpen] = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
+  const [qrTransfer, setQrTransfer] = useState<Transfer | null>(null)
+  const [markPaidTransfer, setMarkPaidTransfer] = useState<Transfer | null>(null)
   const [isUpdatingTripFlag, setIsUpdatingTripFlag] = useState(false)
 
-  const memberNameById = useMemo(
-    () => new Map(trip.members.map((m) => [m.id, m.name])),
+  const memberById = useMemo(
+    () => new Map(trip.members.map((m) => [m.id, m])),
     [trip.members],
   )
+  const nameOf = (id: string) => memberById.get(id)?.name ?? id
 
-  const meName = me ? memberNameById.get(me) ?? null : null
+  // Xử lý deep-link `?pay=<from>.<to>` đúng một lần khi trip, expenses và payments đã tải xong
+  if (dataReady && !payLinkHandled) {
+    setPayLinkHandled(true)
+    const payTarget = parsePayParam(searchParams.get('pay'))
+    if (payTarget) {
+      const matched = transfers.find(
+        (t) => t.fromId === payTarget.fromId && t.toId === payTarget.toId,
+      )
+      if (matched) {
+        setQrTransfer(matched)
+      }
+    }
+  }
+
+  // Xóa tham số `?pay=` khỏi URL sau khi dữ liệu sẵn sàng để tránh tự mở lại QR khi làm mới trang
+  useEffect(() => {
+    if (!dataReady || !searchParams.has('pay')) {
+      return
+    }
+    const next = new URLSearchParams(searchParams)
+    next.delete('pay')
+    setSearchParams(next, { replace: true })
+  }, [dataReady, searchParams, setSearchParams])
+
+  const meName = me ? memberById.get(me)?.name ?? null : null
   const myRow = me ? rows.find((r) => r.memberId === me) : undefined
 
   const canAddExpense = isAdmin || (trip.allowGuestExpenses && !trip.locked)
+  const canMarkPaid = isAdmin || !trip.locked
 
   /**
-   * Kiểm tra người đang xem có quyền sửa/xóa khoản chi hay không (admin sửa hết, khách chỉ sửa khoản do khách tạo khi mở).
+   * Kiểm tra người đang xem có quyền sửa/xóa khoản chi hay không.
    *
    * @param expense - Khoản chi cần kiểm tra
    * @returns `true` nếu được phép sửa hoặc xóa
@@ -141,14 +186,23 @@ function TripLoadedView({
     return isAdmin || (canAddExpense && expense.createdBy === 'guest')
   }
 
-  // Tự mở hộp thoại "Bạn là ai" ở lần đầu truy cập khi `me === null`
+  /**
+   * Kiểm tra người đang xem có quyền hoàn tác bản ghi thanh toán hay không (admin xóa hết, khách chỉ xóa khoản `guest` khi chưa khóa).
+   *
+   * @param payment - Bản ghi thanh toán cần kiểm tra
+   * @returns `true` nếu được phép hoàn tác
+   */
+  function canUndoPayment(payment: Payment): boolean {
+    return isAdmin || (!trip.locked && payment.markedBy === 'guest')
+  }
+
   const showWhoAmIModal =
-    whoAmIOpen || (me === null && dismissedWhoAmITripId !== trip.id)
+    whoAmIOpen || (!openedWithPayParam && me === null && dismissedWhoAmITripId !== trip.id)
 
   const dateLabel = formatTripDates(trip.startDate, trip.endDate)
 
   /**
-   * Đóng hoặc mở hộp thoại "Bạn là ai" và ghi nhớ đã hỏi ở phiên này để không bật lại liên tục.
+   * Đóng/mở hộp thoại "Bạn là ai" và ghi nhớ đã hỏi trong phiên cho chuyến hiện tại.
    *
    * @param nextOpen - Trạng thái mở mới
    */
@@ -168,6 +222,32 @@ function TripLoadedView({
       toast.success('Đã copy link')
     } catch {
       toast.error('Không thể copy tự động. Hãy sao chép từ thanh địa chỉ.')
+    }
+  }
+
+  /**
+   * Tạo và sao chép tin nhắn nhắc nợ riêng kèm deep-link `?pay=` cho một giao dịch trong kế hoạch.
+   *
+   * @param transfer - Giao dịch cần nhắc nợ
+   */
+  async function handleCopyPersonalReminder(transfer: Transfer) {
+    const fromMember = memberById.get(transfer.fromId)
+    const toMember = memberById.get(transfer.toId)
+    if (!fromMember || !toMember) {
+      return
+    }
+    const text = buildPersonalReminder({
+      tripName: trip.name,
+      tripUrl: `${window.location.origin}/t/${trip.id}`,
+      transfer,
+      from: fromMember,
+      to: toMember,
+    })
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success('Đã copy tin nhắn nhắc nợ')
+    } catch {
+      toast.error('Không thể copy tự động. Vui lòng thử lại.')
     }
   }
 
@@ -268,15 +348,59 @@ function TripLoadedView({
     }
   }
 
-  // Đưa các giao dịch liên quan tới `me` lên đầu để dễ theo dõi (DESIGN.md §9)
-  const prioritizedTransfers = useMemo(() => {
-    if (!me) return transfers
-    return [...transfers].sort((a, b) => {
-      const aMine = a.fromId === me || a.toId === me ? 0 : 1
-      const bMine = b.fromId === me || b.toId === me ? 0 : 1
-      return aMine - bMine
-    })
-  }, [transfers, me])
+  /**
+   * Ghi nhận một khoản thanh toán thực tế vào sổ cái `payments`.
+   *
+   * @param amount - Số tiền thực tế đã chuyển (VND nguyên)
+   * @param note - Ghi chú giao dịch tùy chọn
+   */
+  async function handleConfirmPayment(amount: VND, note: string) {
+    if (!markPaidTransfer) return
+    try {
+      await addPayment(
+        db,
+        trip.id,
+        {
+          fromId: markPaidTransfer.fromId,
+          toId: markPaidTransfer.toId,
+          amount,
+          note,
+        },
+        isAdmin ? 'admin' : 'guest',
+      )
+      toast.success('Đã ghi nhận thanh toán.')
+      setMarkPaidTransfer(null)
+    } catch (error) {
+      if (isPermissionDenied(error)) {
+        toast.error('Chuyến đã khóa hoặc chưa cho phép nhập')
+      } else {
+        toast.error('Không thể ghi nhận thanh toán. Vui lòng thử lại.')
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Hoàn tác (xóa) một bản ghi thanh toán khỏi sổ cái `payments`.
+   *
+   * @param payment - Bản ghi thanh toán cần hoàn tác
+   */
+  async function handleUndoPayment(payment: Payment) {
+    try {
+      await deletePayment(db, trip.id, payment.id)
+      toast.success('Đã hoàn tác thanh toán.')
+    } catch (error) {
+      if (isPermissionDenied(error)) {
+        toast.error('Chuyến đã khóa hoặc chưa cho phép nhập')
+      } else {
+        toast.error('Không thể hoàn tác lúc này. Vui lòng thử lại.')
+      }
+      throw error
+    }
+  }
+
+  const qrFromMember = qrTransfer ? memberById.get(qrTransfer.fromId) : undefined
+  const qrToMember = qrTransfer ? memberById.get(qrTransfer.toId) : undefined
 
   return (
     <div className="flex min-h-dvh flex-col pb-24">
@@ -451,46 +575,28 @@ function TripLoadedView({
 
           <section className="flex flex-col gap-2">
             <h2 className="text-sm font-semibold">Ai trả cho ai</h2>
-            {prioritizedTransfers.length === 0 ? (
-              <Card size="sm">
-                <CardContent className="text-center text-sm font-medium text-emerald-700 dark:text-emerald-400">
-                  {totalSpent === 0 && paymentsCount === 0
-                    ? 'Chưa có khoản chi cần thanh toán.'
-                    : '🎉 Cả nhóm đã thanh toán xong!'}
-                </CardContent>
-              </Card>
-            ) : (
-              <ul className="flex flex-col gap-2">
-                {prioritizedTransfers.map((t) => {
-                  const fromName = memberNameById.get(t.fromId) ?? t.fromId
-                  const toName = memberNameById.get(t.toId) ?? t.toId
-                  const involvesMe = me !== null && (t.fromId === me || t.toId === me)
-
-                  return (
-                    <li key={`${t.fromId}-${t.toId}`}>
-                      <Card size="sm" className={involvesMe ? 'ring-primary/50' : undefined}>
-                        <CardContent className="flex items-center justify-between gap-2">
-                          <span className="flex min-w-0 items-center gap-1.5 text-sm font-medium">
-                            <span className="truncate">{fromName}</span>
-                            <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
-                            <span className="truncate">{toName}</span>
-                          </span>
-                          <span className="shrink-0 font-bold tabular-nums">
-                            {formatVND(t.amount)}
-                          </span>
-                        </CardContent>
-                      </Card>
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
+            <SettlementList
+              transfers={transfers}
+              me={me}
+              nameOf={nameOf}
+              onQr={(t) => setQrTransfer(t)}
+              onPaid={(t) => setMarkPaidTransfer(t)}
+              onCopyReminder={(t) => void handleCopyPersonalReminder(t)}
+              canMarkPaid={canMarkPaid}
+            />
           </section>
 
           <section className="flex flex-col gap-2">
             <h2 className="text-sm font-semibold">Bảng từng người</h2>
             <SummaryTable members={trip.members} rows={rows} me={me} />
           </section>
+
+          <PaymentsHistory
+            payments={payments}
+            nameOf={nameOf}
+            canUndo={canUndoPayment}
+            onUndo={handleUndoPayment}
+          />
         </TabsContent>
 
         <TabsContent value="expenses" className="mt-4">
@@ -560,6 +666,42 @@ function TripLoadedView({
           }}
         />
       </ResponsiveModal>
+
+      {qrTransfer && qrFromMember && qrToMember && (
+        <QrSheet
+          open={qrTransfer !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setQrTransfer(null)
+            }
+          }}
+          transfer={qrTransfer}
+          from={qrFromMember}
+          to={qrToMember}
+          tripName={trip.name}
+          tripId={trip.id}
+          canMarkPaid={canMarkPaid}
+          onPaid={() => {
+            const target = qrTransfer
+            setQrTransfer(null)
+            setMarkPaidTransfer(target)
+          }}
+        />
+      )}
+
+      {markPaidTransfer && (
+        <MarkPaidSheet
+          open={markPaidTransfer !== null}
+          onOpenChange={(open) => {
+            if (!open) {
+              setMarkPaidTransfer(null)
+            }
+          }}
+          transfer={markPaidTransfer}
+          nameOf={nameOf}
+          onConfirm={handleConfirmPayment}
+        />
+      )}
     </div>
   )
 }
@@ -577,6 +719,10 @@ export function TripPage() {
   const paymentsState = usePayments(tripId)
 
   const loadedTrip = tripState.status === 'ok' ? tripState.trip : null
+  const dataReady =
+    tripState.status === 'ok' &&
+    expensesState.status === 'ok' &&
+    paymentsState.status === 'ok'
 
   const { rows, invalidExpenseIds, totalSpent } = useMemo(() => {
     if (!loadedTrip) {
@@ -664,8 +810,9 @@ export function TripPage() {
     <TripLoadedView
       trip={tripState.trip}
       isAdmin={adminState.status === 'admin'}
+      dataReady={dataReady}
       expenses={expensesState.expenses}
-      paymentsCount={paymentsState.payments.length}
+      payments={paymentsState.payments}
       rows={rows}
       invalidExpenseIds={invalidExpenseIds}
       totalSpent={totalSpent}
