@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
+  Bell,
   Calendar,
   Copy,
   Edit3,
@@ -23,6 +24,7 @@ import { MarkPaidSheet } from '@/components/MarkPaidSheet'
 import { OfflineBanner } from '@/components/OfflineBanner'
 import { PaymentsHistory } from '@/components/PaymentsHistory'
 import { QrSheet } from '@/components/QrSheet'
+import { ReminderActions } from '@/components/ReminderActions'
 import { ResponsiveModal } from '@/components/ResponsiveModal'
 import { SettlementList } from '@/components/SettlementList'
 import { SummaryTable } from '@/components/SummaryTable'
@@ -60,7 +62,7 @@ import { useMe } from '@/hooks/useMe'
 import { computeBalances } from '@/lib/balances'
 import { formatDateVN } from '@/lib/date'
 import { formatVND } from '@/lib/money'
-import { buildPersonalReminder, parsePayParam } from '@/lib/reminder'
+import { buildGroupReminder, buildPersonalReminder, parsePayParam } from '@/lib/reminder'
 import { settle } from '@/lib/settle'
 import type { Transfer, VND } from '@/lib/types'
 
@@ -138,6 +140,7 @@ function TripLoadedView({
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   const [qrTransfer, setQrTransfer] = useState<Transfer | null>(null)
   const [markPaidTransfer, setMarkPaidTransfer] = useState<Transfer | null>(null)
+  const [reminderOpen, setReminderOpen] = useState(false)
   const [isUpdatingTripFlag, setIsUpdatingTripFlag] = useState(false)
 
   const memberById = useMemo(
@@ -402,6 +405,23 @@ function TripLoadedView({
   const qrFromMember = qrTransfer ? memberById.get(qrTransfer.fromId) : undefined
   const qrToMember = qrTransfer ? memberById.get(qrTransfer.toId) : undefined
 
+  const groupReminderText = useMemo(
+    () =>
+      buildGroupReminder({
+        tripName: trip.name,
+        tripUrl: `${window.location.origin}/t/${trip.id}`,
+        totalSpent,
+        transfers,
+        paid: payments.map((p) => ({
+          fromId: p.fromId,
+          toId: p.toId,
+          amount: p.amount,
+        })),
+        nameOf: (id) => memberById.get(id)?.name ?? id,
+      }),
+    [trip.name, trip.id, totalSpent, transfers, payments, memberById],
+  )
+
   return (
     <div className="flex min-h-dvh flex-col pb-24">
       <OfflineBanner hasPendingWrites={hasPendingWrites()} />
@@ -493,6 +513,16 @@ function TripLoadedView({
           >
             <Copy />
             Copy link
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-11 flex-1"
+            onClick={() => setReminderOpen(true)}
+          >
+            <Bell />
+            Nhắc nợ
           </Button>
           <Button
             type="button"
@@ -702,6 +732,14 @@ function TripLoadedView({
           onConfirm={handleConfirmPayment}
         />
       )}
+
+      <ResponsiveModal
+        open={reminderOpen}
+        onOpenChange={setReminderOpen}
+        title="Nhắc nợ cả nhóm"
+      >
+        <ReminderActions text={groupReminderText} />
+      </ResponsiveModal>
     </div>
   )
 }

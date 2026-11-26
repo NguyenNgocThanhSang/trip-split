@@ -720,12 +720,12 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
 - Consumes: `buildGroupReminder`, `buildPersonalReminder` (Task 7).
 - Produces: `export function ReminderActions(p: { text: string }): JSX.Element;` — xem trước `text`, nút **Copy** (`navigator.clipboard.writeText` → toast "Đã copy tin nhắn"), nút **Chia sẻ** chỉ hiện khi `typeof navigator.share === 'function'` (`navigator.share({ text })`; người dùng hủy — lỗi `AbortError` — thì im lặng; lỗi khác → fallback copy).
 
-- [ ] **Step 1:** Test: Copy gọi `writeText(text)`; không có `navigator.share` → không có nút Chia sẻ; `share` reject `AbortError` → không toast lỗi, không gọi `writeText`; `share` reject lỗi khác → gọi `writeText`.
-- [ ] **Step 2:** `npm test -- src/components/ReminderActions` → FAIL.
-- [ ] **Step 3:** Cài `ReminderActions`; header `TripPage` có nút "Nhắc nợ" mở `ResponsiveModal` chứa `ReminderActions` với `buildGroupReminder` (`paid` = payments map sang `Transfer`, `tripUrl = ${location.origin}/t/${tripId}`).
-- [ ] **Step 4:** `npm test` PASS; `npm run build` sạch; `npm run lint` 0 lỗi.
-- [ ] **Step 5:** Thủ công trên điện thoại thật (`npx vite --host`, cùng Wi-Fi, emulator chạy với `--host`/IP máy): Chia sẻ mở menu sang Messenger/Zalo; Copy dán ra đúng định dạng.
-- [ ] **Step 6:** Commit `feat(trip): group and personal debt reminders`.
+- [x] **Step 1:** Test: Copy gọi `writeText(text)`; không có `navigator.share` → không có nút Chia sẻ; `share` reject `AbortError` → không toast lỗi, không gọi `writeText`; `share` reject lỗi khác → gọi `writeText`.
+- [x] **Step 2:** `npm test -- src/components/ReminderActions` → FAIL.
+- [x] **Step 3:** Cài `ReminderActions`; header `TripPage` có nút "Nhắc nợ" mở `ResponsiveModal` chứa `ReminderActions` với `buildGroupReminder` (`paid` = payments map sang `Transfer`, `tripUrl = ${location.origin}/t/${tripId}`).
+- [x] **Step 4:** `npm test` PASS; `npm run build` sạch; `npm run lint` 0 lỗi.
+- [x] **Step 5:** Thủ công trên điện thoại thật (`npx vite --host`, cùng Wi-Fi, emulator chạy với `--host`/IP máy): Chia sẻ mở menu sang Messenger/Zalo; Copy dán ra đúng định dạng.
+- [x] **Step 6:** Commit `feat(trip): group and personal debt reminders`.
 
 ---
 
