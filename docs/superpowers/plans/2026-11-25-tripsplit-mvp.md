@@ -478,8 +478,8 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   ```
   Script: `"emulators": "firebase emulators:start --project demo-tripsplit"`, `"test:rules": "firebase emulators:exec --only firestore --project demo-tripsplit \"vitest run --dir tests\""`. `vitest.config.ts`: `npm test` chỉ chạy `src/**`; khi chạy với `--dir tests` thì include `tests/**/*.test.ts`, `fileParallelism: false`.
 
-- [ ] **Step 1:** `firebase.json` (rules, indexes, emulators auth 9099, firestore 8080, ui 4000 — **không** có mục `hosting`), `.firebaserc` `{ "projects": { "default": "demo-tripsplit" } }`, `firestore.indexes.json` `{ "indexes": [], "fieldOverrides": [] }`, `firestore.rules` chép **nguyên văn** §7.2.
-- [ ] **Step 2: Viết test rules** — một `it` cho mỗi dòng ở §12.2, dùng `assertSucceeds`/`assertFails`, ghi thời gian bằng `serverTimestamp()`. Các case tối thiểu:
+- [x] **Step 1:** `firebase.json` (rules, indexes, emulators auth 9099, firestore 8080, ui 4000 — **không** có mục `hosting`), `.firebaserc` `{ "projects": { "default": "demo-tripsplit" } }`, `firestore.indexes.json` `{ "indexes": [], "fieldOverrides": [] }`, `firestore.rules` chép **nguyên văn** §7.2.
+- [x] **Step 2: Viết test rules** — một `it` cho mỗi dòng ở §12.2, dùng `assertSucceeds`/`assertFails`, ghi thời gian bằng `serverTimestamp()`. Các case tối thiểu:
   - khách `getDoc(trip)` ✅; khách `getDocs(collection('trips'))` ❌; admin `getDocs` ✅.
   - khách `updateDoc(trip, { 'members': [...] })`, `{ allowGuestExpenses: true }`, `{ locked: false }` ❌; khách `setDoc(memberQrs/sang)` ❌; khách đọc/ghi `friends/x` ❌.
   - khách thêm expense hợp lệ khi `allowGuestExpenses=false` ❌; `true` + `createdBy:'guest'` ✅; `createdBy:'admin'` ❌; `payerId:'ghost'` ❌; `participantIds:['sang','ghost']` ❌; khi `locked:true` ❌.
@@ -488,8 +488,8 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   - schema: `name` 101 ký tự, `amount:-100`, `amount:100.5`, field lạ `hacked:true`, `fixedAmounts:{ ghost: 1 }`, `createdAt` là `Timestamp.fromDate(new Date(2020,0,1))` → đều ❌.
   - admin tạo trip id `'k3x9p2qm7a'` ✅, id `'Dalat-2026'` ❌, trip 1 thành viên ❌; admin CRUD friend hợp lệ ✅, `bankBin:'97043'` ❌, `momoQrDataUrl:'http://x'` ❌.
   - `setDoc(doc(db,'other/x'))` bởi admin ❌.
-- [ ] **Step 3:** `npm run test:rules` → kỳ vọng phần lớn PASS ngay (rules đã viết). Mọi case FAIL: đọc thông báo lỗi, sửa `firestore.rules` (không sửa test trừ khi test sai so với §7.1), chạy lại tới khi **toàn bộ PASS**. Ghi mọi thay đổi rules ngược vào `DESIGN.md` §7.2.
-- [ ] **Step 4:** Commit `feat(firebase): firestore rules with emulator test suite`.
+- [x] **Step 3:** `npm run test:rules` → kỳ vọng phần lớn PASS ngay (rules đã viết). Mọi case FAIL: đọc thông báo lỗi, sửa `firestore.rules` (không sửa test trừ khi test sai so với §7.1), chạy lại tới khi **toàn bộ PASS**. Ghi mọi thay đổi rules ngược vào `DESIGN.md` §7.2.
+- [x] **Step 4:** Commit `feat(firebase): firestore rules with emulator test suite`.
 
 ---
 

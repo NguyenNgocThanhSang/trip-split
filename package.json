@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "emulators": "firebase emulators:start --project demo-tripsplit",
     "test": "vitest run",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-tripsplit \"vitest run --dir tests\"",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
@@ -29,6 +31,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@firebase/rules-unit-testing": "^6.0.0",
     "@tailwindcss/vite": "^4.3.5",
     "@testing-library/jest-dom": "^8.0.0",
     "@testing-library/react": "^16.3.3",
@@ -40,6 +43,7 @@
     "eslint": "^10.14.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.7",
+    "firebase-tools": "^15.37.0",
     "globals": "^17.13.0",
     "jsdom": "^31.0.1",
     "shadcn": "^4.23.0",

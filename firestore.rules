@@ -1,0 +1,252 @@
+/**
+ * Luật bảo mật Cloud Firestore cho TripSplit (Spark plan, không dùng Cloud Functions).
+ * Không bao giờ cho phép `list` trên `trips`, không cho khách đọc `friends`, và không cho khách sửa thông tin chuyến/STK/QR.
+ */
+
+// ===============================================================
+// Assumed Data Model (Mô hình dữ liệu giả định — DESIGN.md §6 & §7.2)
+// ===============================================================
+//
+// Tài liệu rules này giả định các collection và cấu trúc dữ liệu sau:
+//
+// 1. Collection: friends/{friendId} (CHỈ admin đọc/ghi)
+//    - name: string (bắt buộc, 1..40 ký tự) - Tên hiển thị trong danh bạ
+//    - bankBin: string (tùy chọn, đúng 6 chữ số NAPAS) - Mã BIN ngân hàng
+//    - bankShortName: string (tùy chọn, 1..30 ký tự) - Tên ngắn ngân hàng
+//    - accountNo: string (tùy chọn, 1..25 ký tự) - Số tài khoản ngân hàng
+//    - accountName: string (tùy chọn, 1..60 ký tự) - Tên chủ tài khoản
+//    - momoQrDataUrl: string (tùy chọn, <= 100.000 ký tự, data:image/(webp|jpeg|png);base64,...) - Ảnh QR MoMo đã nén
+//    - createdAt: timestamp (bắt buộc, == request.time khi tạo, bất biến khi cập nhật)
+//    - updatedAt: timestamp (bắt buộc, == request.time)
+//
+// 2. Collection: trips/{tripId} (tripId dài đúng 10 ký tự [a-z0-9])
+//    - name: string (bắt buộc, 1..100 ký tự) - Tên chuyến đi
+//    - startDate: string (tùy chọn, YYYY-MM-DD) - Ngày bắt đầu
+//    - endDate: string (tùy chọn, YYYY-MM-DD) - Ngày kết thúc
+//    - members: list (bắt buộc, 2..20 phần tử) - Bản sao thông tin thành viên & STK lúc tạo/cập nhật chuyến
+//    - memberIds: list (bắt buộc, cùng độ dài với members) - Danh sách ID thành viên để rules kiểm tra `in` / `hasOnly`
+//    - allowGuestExpenses: bool (bắt buộc) - Bật/tắt quyền thêm/sửa/xóa chi tiêu cho khách
+//    - locked: bool (bắt buộc) - Khóa sổ chuyến đi (chặn mọi ghi từ khách)
+//    - createdAt: timestamp (bắt buộc, == request.time khi tạo, bất biến khi cập nhật)
+//    - updatedAt: timestamp (bắt buộc, == request.time)
+//
+// 3. Subcollection: trips/{tripId}/expenses/{expenseId}
+//    - name: string (bắt buộc, 1..100 ký tự) - Tên khoản chi
+//    - amount: int (bắt buộc, 1..1.000.000.000 VND) - Số tiền nguyên VND
+//    - payerId: string (bắt buộc, thuộc trip.memberIds) - Người ứng tiền
+//    - participantIds: list (bắt buộc, 1..20 phần tử, tập con trip.memberIds) - Người tham gia chia
+//    - fixedAmounts: map (bắt buộc, keys tập con participantIds) - Phần chia cố định (nếu có)
+//    - note: string (bắt buộc, 0..200 ký tự) - Ghi chú (chuỗi rỗng nếu không có)
+//    - date: string (bắt buộc, YYYY-MM-DD) - Ngày chi tiêu
+//    - createdBy: string (bắt buộc, 'admin' | 'guest', bất biến) - Nguồn tạo khoản chi
+//    - createdAt: timestamp (bắt buộc, == request.time khi tạo, bất biến khi cập nhật)
+//    - updatedAt: timestamp (bắt buộc, == request.time)
+//
+// 4. Subcollection: trips/{tripId}/payments/{paymentId} (chỉ tạo/đọc/xóa, cấm sửa)
+//    - fromId: string (bắt buộc, thuộc trip.memberIds) - Người trả tiền
+//    - toId: string (bắt buộc, thuộc trip.memberIds, khác fromId) - Người nhận tiền
+//    - amount: int (bắt buộc, 1..1.000.000.000 VND) - Số tiền thực tế đã chuyển
+//    - note: string (bắt buộc, 0..120 ký tự) - Ghi chú thanh toán
+//    - markedBy: string (bắt buộc, 'admin' | 'guest') - Nguồn ghi nhận thanh toán
+//    - paidAt: timestamp (bắt buộc, == request.time) - Thời điểm ghi nhận thanh toán
+//
+// 5. Subcollection: trips/{tripId}/memberQrs/{memberId} (memberId thuộc trip.memberIds)
+//    - dataUrl: string (bắt buộc, <= 100.000 ký tự, data:image/(webp|jpeg|png);base64,...) - Ảnh QR MoMo tĩnh
+//    - updatedAt: timestamp (bắt buộc, == request.time)
+//
+// ===============================================================
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    // ---------- helpers ----------
+
+    // Kiểm tra người gửi request có phải admin duy nhất (so UID cố định qua Firebase Auth) để cấp toàn quyền quản trị.
+    function isAdmin() {
+      return request.auth != null && request.auth.uid == 'REPLACE_WITH_ADMIN_UID';
+    }
+
+    // Trả về đường dẫn document chuyến đi dùng chung cho exists() và get() trong các subcollection.
+    function tripPath(tripId) { return /databases/$(db)/documents/trips/$(tripId); }
+
+    // Kiểm tra document chuyến đi cha có tồn tại hay không để chặn đọc/ghi vào subcollection mồ côi.
+    function tripExists(tripId) { return exists(tripPath(tripId)); }
+
+    // Đọc dữ liệu document chuyến đi cha để kiểm tra danh sách thành viên và trạng thái khóa/cho phép khách nhập.
+    function trip(tripId) { return get(tripPath(tripId)).data; }
+
+    // Kiểm tra số tiền phải là số nguyên VND hợp lệ trong khoảng 1..1 tỷ (chặn số âm, 0, float và tràn giới hạn).
+    function isMoney(v)        { return v is int && v >= 1 && v <= 1000000000; }
+
+    // Kiểm tra chuỗi bắt buộc có độ dài từ 1 tới max ký tự nhằm chống chuỗi rỗng và payload quá lớn.
+    function isText(v, max)    { return v is string && v.size() >= 1 && v.size() <= max; }
+
+    // Kiểm tra chuỗi cho phép rỗng có độ dài tối đa max ký tự nhằm giới hạn dung lượng lưu trữ.
+    function isOptText(v, max) { return v is string && v.size() <= max; }
+
+    // Kiểm tra chuỗi ngày theo đúng định dạng YYYY-MM-DD để đảm bảo dữ liệu ngày nhất quán.
+    function isDate(v)         { return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
+
+    // Kiểm tra ảnh QR MoMo dạng data URL base64 (webp/jpeg/png) và giới hạn <= 100.000 ký tự để không vượt ngưỡng 1 MiB.
+    function isQrDataUrl(v) {
+      return v is string && v.size() <= 100000
+        && v.matches('^data:image/(webp|jpeg|png);base64,[A-Za-z0-9+/=]+$');
+    }
+
+    // Kiểm tra document có chính xác tập key cho phép (không thiếu trường bắt buộc, không thừa trường lạ).
+    function exactKeys(d, keys) { return d.keys().hasOnly(keys) && d.keys().hasAll(keys); }
+
+    // ---------- validators ----------
+
+    // Kiểm tra toàn bộ schema của document chuyến đi (trips) cho cả thao tác tạo và cập nhật bởi admin.
+    function validTrip(d) {
+      return d.keys().hasOnly(['name','startDate','endDate','members','memberIds',
+                               'allowGuestExpenses','locked','createdAt','updatedAt'])
+        && d.keys().hasAll(['name','members','memberIds','allowGuestExpenses','locked',
+                            'createdAt','updatedAt'])
+        && isText(d.name, 100)
+        && (!('startDate' in d) || isDate(d.startDate))
+        && (!('endDate' in d) || isDate(d.endDate))
+        && d.members is list && d.members.size() >= 2 && d.members.size() <= 20
+        && d.memberIds is list && d.memberIds.size() == d.members.size()
+        && d.allowGuestExpenses is bool && d.locked is bool
+        && d.updatedAt == request.time;
+    }
+
+    // Kiểm tra schema khoản chi (expenses) và đối chiếu người ứng/tham gia/số cố định với thành viên chuyến đi.
+    function validExpense(d, t) {
+      return exactKeys(d, ['name','amount','payerId','participantIds','fixedAmounts',
+                           'note','date','createdBy','createdAt','updatedAt'])
+        && isText(d.name, 100)
+        && isMoney(d.amount)
+        && d.payerId in t.memberIds
+        && d.participantIds is list
+        && d.participantIds.size() >= 1 && d.participantIds.size() <= 20
+        && d.participantIds.hasOnly(t.memberIds)
+        && d.fixedAmounts is map
+        && d.fixedAmounts.keys().hasOnly(d.participantIds)
+        && isOptText(d.note, 200)
+        && isDate(d.date)
+        && d.updatedAt == request.time;
+      // Rules không lặp được giá trị trong map → kiểm từng fixed & tổng fixed ≤ amount ở client (computeShares).
+    }
+
+    // Kiểm tra schema bản ghi thanh toán (payments): người trả/nhận thuộc chuyến, khác nhau, tiền nguyên VND và giờ server.
+    function validPayment(d, t) {
+      return exactKeys(d, ['fromId','toId','amount','note','markedBy','paidAt'])
+        && d.fromId in t.memberIds && d.toId in t.memberIds && d.fromId != d.toId
+        && isMoney(d.amount)
+        && isOptText(d.note, 120)
+        && d.paidAt == request.time;
+    }
+
+    // Kiểm tra schema hồ sơ bạn bè trong danh bạ (friends) khi admin tạo hoặc cập nhật thông tin ngân hàng/QR.
+    function validFriend(d) {
+      return d.keys().hasOnly(['name','bankBin','bankShortName','accountNo','accountName',
+                               'momoQrDataUrl','createdAt','updatedAt'])
+        && d.keys().hasAll(['name','createdAt','updatedAt'])
+        && isText(d.name, 40)
+        && (!('bankBin' in d) || (d.bankBin is string && d.bankBin.matches('^[0-9]{6}$')))
+        && (!('bankShortName' in d) || isText(d.bankShortName, 30))
+        && (!('accountNo' in d) || isText(d.accountNo, 25))
+        && (!('accountName' in d) || isText(d.accountName, 60))
+        && (!('momoQrDataUrl' in d) || isQrDataUrl(d.momoQrDataUrl))
+        && d.updatedAt == request.time;
+    }
+
+    // ---------- collections ----------
+
+    match /friends/{friendId} {
+      // Chỉ admin được đọc và xóa danh bạ vì chứa thông tin ngân hàng cá nhân của bạn bè.
+      allow read, delete: if isAdmin();
+      // Chỉ admin được tạo bạn bè mới khi hợp lệ schema và dùng timestamp máy chủ cho createdAt.
+      allow create: if isAdmin() && validFriend(request.resource.data)
+        && request.resource.data.createdAt == request.time;
+      // Chỉ admin được cập nhật bạn bè khi hợp lệ schema và giữ nguyên createdAt bất biến.
+      allow update: if isAdmin() && validFriend(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    match /trips/{tripId} {
+      // Cho phép mọi người có link (kể cả khách không đăng nhập) đọc 1 chuyến theo tripId ngẫu nhiên 10 ký tự khó đoán.
+      allow get: if true;
+      // Chỉ admin được liệt kê toàn bộ danh sách chuyến để khách không thể dò ra các chuyến khác và STK bên trong.
+      allow list: if isAdmin();
+      // Chỉ admin được tạo chuyến mới với tripId đúng 10 ký tự [a-z0-9], hợp lệ schema và createdAt == request.time.
+      allow create: if isAdmin()
+        && tripId.matches('^[a-z0-9]{10}$')
+        && validTrip(request.resource.data)
+        && request.resource.data.createdAt == request.time;
+      // Chỉ admin được sửa thông tin chuyến (thành viên, STK, khóa sổ, bật/tắt khách nhập) và không được đổi createdAt.
+      allow update: if isAdmin()
+        && validTrip(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt;
+      // Chỉ admin được xóa chuyến đi.
+      allow delete: if isAdmin();
+
+      match /expenses/{expenseId} {
+        // Bất kỳ ai có tripId của chuyến đang tồn tại đều đọc được danh sách chi tiêu của chuyến đó.
+        allow read: if tripExists(tripId);
+
+        // Cho phép tạo khoản chi hợp lệ khi chuyến tồn tại: admin ghi createdBy='admin', hoặc khách ghi createdBy='guest' khi chuyến chưa khóa và cho phép khách nhập.
+        allow create: if tripExists(tripId)
+          && validExpense(request.resource.data, trip(tripId))
+          && request.resource.data.createdAt == request.time
+          && ( (isAdmin() && request.resource.data.createdBy == 'admin')
+            || (trip(tripId).allowGuestExpenses && !trip(tripId).locked
+                && request.resource.data.createdBy == 'guest') );
+
+        // Cho phép cập nhật khoản chi hợp lệ mà không đổi createdAt/createdBy: admin sửa mọi khoản, khách chỉ sửa khoản do khách tạo khi chuyến mở và cho phép nhập.
+        allow update: if tripExists(tripId)
+          && validExpense(request.resource.data, trip(tripId))
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.createdBy == resource.data.createdBy
+          && ( isAdmin()
+            || (trip(tripId).allowGuestExpenses && !trip(tripId).locked
+                && resource.data.createdBy == 'guest') );
+
+        // Admin được xóa mọi khoản chi; khách chỉ được xóa khoản createdBy=='guest' khi chuyến tồn tại, chưa khóa và đang bật cho phép khách nhập.
+        allow delete: if isAdmin()
+          || (tripExists(tripId) && trip(tripId).allowGuestExpenses && !trip(tripId).locked
+              && resource.data.createdBy == 'guest');
+      }
+
+      match /payments/{paymentId} {
+        // Bất kỳ ai có tripId của chuyến đang tồn tại đều đọc được lịch sử thanh toán của chuyến đó.
+        allow read: if tripExists(tripId);
+
+        // Cho phép ghi nhận thanh toán hợp lệ khi chuyến tồn tại: admin ghi markedBy='admin', hoặc khách ghi markedBy='guest' khi chuyến chưa khóa.
+        allow create: if tripExists(tripId)
+          && validPayment(request.resource.data, trip(tripId))
+          && ( (isAdmin() && request.resource.data.markedBy == 'admin')
+            || (!trip(tripId).locked && request.resource.data.markedBy == 'guest') );
+
+        // Cấm hoàn toàn cập nhật bản ghi thanh toán để giữ tính toàn vẹn sổ cái (muốn sửa phải xóa rồi tạo lại).
+        allow update: if false;   // muốn sửa thì xóa rồi tạo lại
+
+        // Admin được xóa mọi bản ghi thanh toán; khách chỉ được hoàn tác bản ghi markedBy=='guest' khi chuyến tồn tại và chưa khóa.
+        allow delete: if isAdmin()
+          || (tripExists(tripId) && !trip(tripId).locked && resource.data.markedBy == 'guest');
+      }
+
+      match /memberQrs/{memberId} {
+        // Bất kỳ ai có tripId của chuyến đang tồn tại đều đọc được ảnh QR MoMo tĩnh của thành viên trong chuyến.
+        allow read: if tripExists(tripId);
+        // Chỉ admin được tạo hoặc cập nhật ảnh QR MoMo cho thành viên thuộc trip.memberIds (chống khách tráo mã QR nhận tiền).
+        allow create, update: if isAdmin() && tripExists(tripId)
+          && memberId in trip(tripId).memberIds
+          && exactKeys(request.resource.data, ['dataUrl','updatedAt'])
+          && isQrDataUrl(request.resource.data.dataUrl)
+          && request.resource.data.updatedAt == request.time;
+        // Chỉ admin được xóa ảnh QR MoMo của thành viên.
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /{document=**} {
+      // Mặc định từ chối mọi thao tác đọc/ghi trên bất kỳ đường dẫn nào ngoài các collection đã khai báo.
+      allow read, write: if false;   // mặc định chặn mọi thứ khác
+    }
+  }
+}

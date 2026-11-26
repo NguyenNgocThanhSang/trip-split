@@ -1,6 +1,6 @@
 /**
  * Cấu hình Vitest cho TripSplit.
- * Mặc định chạy ở môi trường Node cho logic thuần; test UI tự khai báo `@vitest-environment jsdom`.
+ * Mặc định `npm test` chỉ quét `src/**`; khi chạy `vitest run --dir tests` sẽ quét `tests/**`.
  */
 import path from 'path'
 import { defineConfig } from 'vitest/config'
@@ -12,8 +12,11 @@ export default defineConfig({
     },
   },
   test: {
+    dir: 'src',
     environment: 'node',
-    include: ['src/**/*.test.{ts,tsx}'],
-    setupFiles: ['./src/test-setup.ts'],
+    include: ['**/*.test.{ts,tsx}'],
+    setupFiles: [path.resolve(import.meta.dirname, './src/test-setup.ts')],
+    // Chạy tuần tự giữa các file test để tránh xung đột dữ liệu trên Firestore Emulator
+    fileParallelism: false,
   },
 })
