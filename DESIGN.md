@@ -384,8 +384,8 @@ service cloud.firestore {
 
       match /memberQrs/{memberId} {
         allow read: if tripExists(tripId);
-        allow create, update: if isAdmin() && tripExists(tripId)
-          && memberId in trip(tripId).memberIds
+        allow create, update: if isAdmin() && existsAfter(tripPath(tripId))
+          && memberId in getAfter(tripPath(tripId)).data.memberIds
           && exactKeys(request.resource.data, ['dataUrl','updatedAt'])
           && isQrDataUrl(request.resource.data.dataUrl)
           && request.resource.data.updatedAt == request.time;

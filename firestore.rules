@@ -233,9 +233,9 @@ service cloud.firestore {
       match /memberQrs/{memberId} {
         // Bất kỳ ai có tripId của chuyến đang tồn tại đều đọc được ảnh QR MoMo tĩnh của thành viên trong chuyến.
         allow read: if tripExists(tripId);
-        // Chỉ admin được tạo hoặc cập nhật ảnh QR MoMo cho thành viên thuộc trip.memberIds (chống khách tráo mã QR nhận tiền).
-        allow create, update: if isAdmin() && tripExists(tripId)
-          && memberId in trip(tripId).memberIds
+        // Chỉ admin được tạo hoặc cập nhật ảnh QR MoMo cho thành viên thuộc memberIds (chống khách tráo mã QR nhận tiền); dùng existsAfter/getAfter để hỗ trợ ghi nguyên tử trips và memberQrs trong cùng một writeBatch khi tạo chuyến mới hoặc thêm thành viên mới có ảnh QR.
+        allow create, update: if isAdmin() && existsAfter(tripPath(tripId))
+          && memberId in getAfter(tripPath(tripId)).data.memberIds
           && exactKeys(request.resource.data, ['dataUrl','updatedAt'])
           && isQrDataUrl(request.resource.data.dataUrl)
           && request.resource.data.updatedAt == request.time;
