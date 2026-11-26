@@ -538,7 +538,7 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   ```
   `createTrip`/`updateTrip` ghi trip + `memberQrs/{memberId}` trong **một `writeBatch`**; `memberIds` luôn tính từ `members`; trường optional rỗng thì **không ghi** (rules dùng `hasOnly`). `qrs` value `null` = xóa doc QR. `deleteTripCascade` xóa `expenses`, `payments`, `memberQrs` theo batch ≤ 450 thao tác rồi xóa trip.
 
-- [ ] **Step 1: Viết test thất bại**
+- [x] **Step 1: Viết test thất bại**
   `src/data/trips.test.ts` (Review Focus #4):
   ```ts
   it('classifyTripSnapshot', () => {
@@ -553,10 +553,10 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   - `addExpense(..., 'guest')` bằng context khách trên trip `allowGuestExpenses:true` → thành công, doc có `createdBy:'guest'`, không có field `undefined`.
   - `addPayment(..., 'guest')` → doc có `markedBy:'guest'`.
   - `deleteTripCascade` → trip, mọi expense, payment, memberQr đều không còn.
-- [ ] **Step 2:** `npm test -- src/data` và `npm run test:rules` → FAIL (module không tồn tại).
-- [ ] **Step 3:** Cài các module. Hook dùng `onSnapshot` với `{ includeMetadataChanges: true }` cho trip để nhận `fromCache`; hủy listener khi unmount hoặc đổi `tripId`.
-- [ ] **Step 4:** Hai lệnh test ở Step 2 → PASS; `npm run typecheck` → sạch.
-- [ ] **Step 5:** Commit `feat(data): firestore data layer with offline cache`.
+- [x] **Step 2:** `npm test -- src/data` và `npm run test:rules` → FAIL (module không tồn tại).
+- [x] **Step 3:** Cài các module. Hook dùng `onSnapshot` với `{ includeMetadataChanges: true }` cho trip để nhận `fromCache`; hủy listener khi unmount hoặc đổi `tripId`.
+- [x] **Step 4:** Hai lệnh test ở Step 2 → PASS; `npm run typecheck` → sạch.
+- [x] **Step 5:** Commit `feat(data): firestore data layer with offline cache`.
 
 ---
 
