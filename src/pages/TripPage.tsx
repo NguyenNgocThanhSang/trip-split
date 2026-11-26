@@ -82,6 +82,46 @@ function isPermissionDenied(error: unknown): boolean {
 }
 
 /**
+ * Thực thi thao tác ghi Firestore có hỗ trợ xếp hàng ngoại tuyến (`persistentLocalCache`):
+ * khi mất mạng (`navigator.onLine === false`), Firestore ghi vào bộ nhớ đệm cục bộ ngay nhưng Promise
+ * chỉ hoàn tất khi có mạng trở lại — vì vậy cần trả về ngay để đóng modal không bị treo,
+ * đồng thời vẫn gắn `.catch()` để báo toast nếu máy chủ từ chối khi đồng bộ lại.
+ *
+ * @param writePromise - Promise thao tác ghi Firestore (`addDoc`, `updateDoc`, `deleteDoc`)
+ * @param messages - Các chuỗi thông báo tiếng Việt khi thành công trực tuyến, xếp hàng ngoại tuyến và khi lỗi
+ */
+async function runTripWrite(
+  writePromise: Promise<unknown>,
+  messages: {
+    onlineSuccess: string
+    offlineQueued: string
+    fallbackError: string
+  },
+): Promise<void> {
+  const reportWriteError = (error: unknown) => {
+    toast.error(
+      isPermissionDenied(error)
+        ? 'Chuyến đã khóa hoặc chưa cho phép nhập'
+        : messages.fallbackError,
+    )
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    void writePromise.catch(reportWriteError)
+    toast.success(messages.offlineQueued)
+    return
+  }
+
+  try {
+    await writePromise
+    toast.success(messages.onlineSuccess)
+  } catch (error) {
+    reportWriteError(error)
+    throw error
+  }
+}
+
+/**
  * Định dạng khoảng ngày đi/về tiếng Việt cho phần đầu trang chuyến đi.
  *
  * @param startDate - Ngày đi dạng `"YYYY-MM-DD"` (tùy chọn)
@@ -312,24 +352,21 @@ function TripLoadedView({
    * @param values - Dữ liệu hợp lệ từ `ExpenseForm`
    */
   async function handleSubmitExpense(values: ExpenseFormValues) {
-    try {
-      if (editingExpense) {
-        await updateExpense(db, trip.id, editingExpense.id, values)
-        toast.success('Đã cập nhật khoản chi.')
-      } else {
-        await addExpense(db, trip.id, values, isAdmin ? 'admin' : 'guest')
-        toast.success('Đã thêm khoản chi.')
-      }
-      setExpenseModalOpen(false)
-      setEditingExpense(null)
-    } catch (error) {
-      if (isPermissionDenied(error)) {
-        toast.error('Chuyến đã khóa hoặc chưa cho phép nhập')
-      } else {
-        toast.error('Không thể lưu khoản chi. Vui lòng thử lại.')
-      }
-      throw error
+    if (editingExpense) {
+      await runTripWrite(updateExpense(db, trip.id, editingExpense.id, values), {
+        onlineSuccess: 'Đã cập nhật khoản chi.',
+        offlineQueued: 'Đã lưu tạm khoản chi, sẽ tự đồng bộ khi có mạng.',
+        fallbackError: 'Không thể lưu khoản chi. Vui lòng thử lại.',
+      })
+    } else {
+      await runTripWrite(addExpense(db, trip.id, values, isAdmin ? 'admin' : 'guest'), {
+        onlineSuccess: 'Đã thêm khoản chi.',
+        offlineQueued: 'Đã lưu tạm khoản chi, sẽ tự đồng bộ khi có mạng.',
+        fallbackError: 'Không thể lưu khoản chi. Vui lòng thử lại.',
+      })
     }
+    setExpenseModalOpen(false)
+    setEditingExpense(null)
   }
 
   /**
@@ -338,17 +375,11 @@ function TripLoadedView({
    * @param expenseId - Mã document khoản chi cần xóa
    */
   async function handleDeleteExpense(expenseId: string) {
-    try {
-      await deleteExpense(db, trip.id, expenseId)
-      toast.success('Đã xóa khoản chi.')
-    } catch (error) {
-      if (isPermissionDenied(error)) {
-        toast.error('Chuyến đã khóa hoặc chưa cho phép nhập')
-      } else {
-        toast.error('Không thể xóa khoản chi. Vui lòng thử lại.')
-      }
-      throw error
-    }
+    await runTripWrite(deleteExpense(db, trip.id, expenseId), {
+      onlineSuccess: 'Đã xóa khoản chi.',
+      offlineQueued: 'Đã lưu tạm thao tác xóa, sẽ tự đồng bộ khi có mạng.',
+      fallbackError: 'Không thể xóa khoản chi. Vui lòng thử lại.',
+    })
   }
 
   /**
@@ -359,8 +390,8 @@ function TripLoadedView({
    */
   async function handleConfirmPayment(amount: VND, note: string) {
     if (!markPaidTransfer) return
-    try {
-      await addPayment(
+    await runTripWrite(
+      addPayment(
         db,
         trip.id,
         {
@@ -370,17 +401,14 @@ function TripLoadedView({
           note,
         },
         isAdmin ? 'admin' : 'guest',
-      )
-      toast.success('Đã ghi nhận thanh toán.')
-      setMarkPaidTransfer(null)
-    } catch (error) {
-      if (isPermissionDenied(error)) {
-        toast.error('Chuyến đã khóa hoặc chưa cho phép nhập')
-      } else {
-        toast.error('Không thể ghi nhận thanh toán. Vui lòng thử lại.')
-      }
-      throw error
-    }
+      ),
+      {
+        onlineSuccess: 'Đã ghi nhận thanh toán.',
+        offlineQueued: 'Đã lưu tạm thanh toán, sẽ tự đồng bộ khi có mạng.',
+        fallbackError: 'Không thể ghi nhận thanh toán. Vui lòng thử lại.',
+      },
+    )
+    setMarkPaidTransfer(null)
   }
 
   /**
@@ -389,17 +417,11 @@ function TripLoadedView({
    * @param payment - Bản ghi thanh toán cần hoàn tác
    */
   async function handleUndoPayment(payment: Payment) {
-    try {
-      await deletePayment(db, trip.id, payment.id)
-      toast.success('Đã hoàn tác thanh toán.')
-    } catch (error) {
-      if (isPermissionDenied(error)) {
-        toast.error('Chuyến đã khóa hoặc chưa cho phép nhập')
-      } else {
-        toast.error('Không thể hoàn tác lúc này. Vui lòng thử lại.')
-      }
-      throw error
-    }
+    await runTripWrite(deletePayment(db, trip.id, payment.id), {
+      onlineSuccess: 'Đã hoàn tác thanh toán.',
+      offlineQueued: 'Đã lưu tạm thao tác hoàn tác, sẽ tự đồng bộ khi có mạng.',
+      fallbackError: 'Không thể hoàn tác lúc này. Vui lòng thử lại.',
+    })
   }
 
   const qrFromMember = qrTransfer ? memberById.get(qrTransfer.fromId) : undefined

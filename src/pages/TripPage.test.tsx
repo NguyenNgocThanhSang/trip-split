@@ -4,11 +4,12 @@
  * bỏ qua link `?pay=` cũ không còn trong kế hoạch thanh toán, và mở đúng `QrSheet` khi còn tồn tại.
  */
 import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAdmin } from '@/data/auth'
 import { useExpenses } from '@/data/expenses'
-import { usePayments } from '@/data/payments'
+import { addPayment, usePayments } from '@/data/payments'
 import { useTrip } from '@/data/trips'
 import type { Expense, Trip } from '@/data/types'
 import { TripPage } from './TripPage'
@@ -48,6 +49,7 @@ const mockUseAdmin = vi.mocked(useAdmin)
 const mockUseTrip = vi.mocked(useTrip)
 const mockUseExpenses = vi.mocked(useExpenses)
 const mockUsePayments = vi.mocked(usePayments)
+const mockAddPayment = vi.mocked(addPayment)
 
 const ts = {} as Trip['createdAt']
 
@@ -102,6 +104,10 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  Object.defineProperty(navigator, 'onLine', {
+    configurable: true,
+    value: true,
+  })
   cleanup()
   vi.clearAllMocks()
 })
@@ -147,5 +153,55 @@ describe('TripPage deep-link ?pay=', () => {
     const dialog = screen.getByRole('dialog')
     expect(dialog).toHaveTextContent('Chung → Sang (100.000đ)')
     expect(screen.getByRole('img', { name: /mã vietqr chuyển cho sang/i })).toBeInTheDocument()
+  })
+
+  it('đóng MarkPaidSheet và xếp hàng ghi thanh toán ngay khi đang ngoại tuyến (offline)', async () => {
+    const user = userEvent.setup()
+    Object.defineProperty(navigator, 'onLine', {
+      configurable: true,
+      value: false,
+    })
+    window.localStorage.setItem('tripsplit:me:trip123456', 'chung')
+    // Firestore khi mất mạng giữ Promise pending tới khi đồng bộ xong với máy chủ
+    mockAddPayment.mockImplementation(() => new Promise<void>(() => {}))
+
+    const sharedExpense: Expense = {
+      id: 'e1',
+      name: 'Tiền phòng',
+      amount: 200000,
+      payerId: 'sang',
+      participantIds: ['sang', 'chung'],
+      fixedAmounts: {},
+      note: '',
+      date: '2026-12-20',
+      createdBy: 'admin',
+      createdAt: ts,
+      updatedAt: ts,
+    }
+    mockUseExpenses.mockReturnValue({ status: 'ok', expenses: [sharedExpense] })
+
+    render(
+      <MemoryRouter initialEntries={['/t/trip123456']}>
+        <Routes>
+          <Route path="/t/:tripId" element={<TripPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Đã chuyển' }))
+    await user.click(screen.getByRole('button', { name: 'Xác nhận đã chuyển' }))
+
+    expect(mockAddPayment).toHaveBeenCalledWith(
+      expect.anything(),
+      'trip123456',
+      {
+        fromId: 'chung',
+        toId: 'sang',
+        amount: 100000,
+        note: '',
+      },
+      'guest',
+    )
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 })
