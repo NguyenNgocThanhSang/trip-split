@@ -354,7 +354,7 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   export function findBank(bin: string): Bank | undefined;
   ```
 
-- [ ] **Step 1: Viết test thất bại**
+- [x] **Step 1: Viết test thất bại**
   ```ts
   it('toAscii', () => {
     expect(toAscii('Chung trả tiền Đà Lạt (đợt 1)!')).toBe('Chung tra tien Da Lat dot 1');
@@ -376,11 +376,11 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   });
   it('banks include Vietcombank', () => expect(findBank('970436')?.shortName).toBe('Vietcombank'));
   ```
-- [ ] **Step 2:** `npm test -- src/lib/vietqr` → FAIL.
-- [ ] **Step 3:** Viết `scripts/fetch-banks.mjs` (Node, chạy tay một lần): `GET https://api.vietqr.io/v2/banks`, map mỗi phần tử `{ bin, code, shortName, name }` (bỏ phần tử thiếu `bin`), sắp theo `shortName`, ghi `src/lib/banks.ts` dạng `export const BANKS: Bank[] = [...]` + `findBank`. Chạy `node scripts/fetch-banks.mjs`, kiểm file sinh ra có ≥ 40 ngân hàng.
-- [ ] **Step 4:** Cài `toAscii` (NFD, bỏ `̀-ͯ`, `đ→d`, `Đ→D`, bỏ ký tự ngoài `[A-Za-z0-9 ]`, gộp khoảng trắng, `trim`), `defaultTransferNote`, `buildVietQrUrl` (query bằng `URLSearchParams`, `accountName` = `toAscii(...).toUpperCase()`, bỏ nếu rỗng).
-- [ ] **Step 5:** `npm test -- src/lib/vietqr` → PASS.
-- [ ] **Step 6:** Commit `feat(lib): VietQR url builder and static bank list`.
+- [x] **Step 2:** `npm test -- src/lib/vietqr` → FAIL.
+- [x] **Step 3:** Viết `scripts/fetch-banks.mjs` (Node, chạy tay một lần): `GET https://api.vietqr.io/v2/banks`, map mỗi phần tử `{ bin, code, shortName, name }` (bỏ phần tử thiếu `bin`), sắp theo `shortName`, ghi `src/lib/banks.ts` dạng `export const BANKS: Bank[] = [...]` + `findBank`. Chạy `node scripts/fetch-banks.mjs`, kiểm file sinh ra có ≥ 40 ngân hàng.
+- [x] **Step 4:** Cài `toAscii` (NFD, bỏ `̀-ͯ`, `đ→d`, `Đ→D`, bỏ ký tự ngoài `[A-Za-z0-9 ]`, gộp khoảng trắng, `trim`), `defaultTransferNote`, `buildVietQrUrl` (query bằng `URLSearchParams`, `accountName` = `toAscii(...).toUpperCase()`, bỏ nếu rỗng).
+- [x] **Step 5:** `npm test -- src/lib/vietqr` → PASS.
+- [x] **Step 6:** Commit `feat(lib): VietQR url builder and static bank list`.
 
 ---
 
