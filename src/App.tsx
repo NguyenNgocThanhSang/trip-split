@@ -11,6 +11,7 @@ import { AdminTripEdit } from '@/pages/AdminTripEdit'
 import { AdminTrips } from '@/pages/AdminTrips'
 import { HomePage } from '@/pages/HomePage'
 import { NotFound } from '@/pages/NotFound'
+import { TripPage } from '@/pages/TripPage'
 
 /**
  * Component gốc chứa bộ định tuyến (router) và vùng hiển thị thông báo toast toàn cục.
@@ -24,7 +25,7 @@ export function App() {
       <main className="mx-auto max-w-[480px] min-h-dvh">
         <Routes>
           <Route path="/" element={<HomePage />} />
-          <Route path="/t/:tripId" element={<div>Trang chuyến đi</div>} />
+          <Route path="/t/:tripId" element={<TripPage />} />
           <Route path="/admin" element={<AdminLogin />} />
 
           {/* Bảo vệ mọi route quản trị sau /admin bằng AdminGuard */}

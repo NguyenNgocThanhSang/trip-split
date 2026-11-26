@@ -650,7 +650,7 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   ```
   `TripPage` tính `{ rows, invalidExpenseIds, totalSpent } = useMemo(computeBalances(...))` và `transfers = useMemo(settle(rows, memberIds))` một lần, truyền xuống tab. Quyền ghi phía UI: `canAddExpense = admin || (trip.allowGuestExpenses && !trip.locked)`; `canEditExpense(e) = admin || (canAddExpense && e.createdBy === 'guest')`.
 
-- [ ] **Step 1: Viết test thất bại**
+- [x] **Step 1: Viết test thất bại**
   `MoneyInput`: gõ `190k` → `onChange(190000)` và hiện `= 190.000đ`; gõ `abc` → `onChange(null)` và hiện "Số tiền không hợp lệ"; `allowZero` + `0` → `onChange(0)`; input có `inputMode="text"`.
   `ExpenseForm` (members Sang, Chung, Mơ, Phụng; `defaultPayerId: 'sang'`):
   ```ts
@@ -669,12 +669,12 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   it('unselecting a participant drops their fixed amount from the payload');
   it('save button disabled while onSubmit is pending (single call on double click)');
   ```
-- [ ] **Step 2:** `npm test -- src/components` → FAIL.
-- [ ] **Step 3:** Cài `MoneyInput`, `MemberChips` (shadcn `ToggleGroup`), `ExpenseForm` theo §9 (preview gọi `computeShares` mỗi lần đổi; mục "Chia không đều" và "Thêm chi tiết" thu gọn mặc định).
-- [ ] **Step 4:** `npm test -- src/components` → PASS.
-- [ ] **Step 5:** Cài `TripPage` theo §9 (phần không phụ thuộc Task 14): xử lý `TripState` — `loading` Skeleton; `not-found` "Link không đúng hoặc chuyến đã bị xóa"; `offline-empty` "Không tải được chuyến đi — kiểm tra mạng rồi thử lại"; `error` Alert + nút "Thử lại". Header (tên, ngày, tổng chi, badge khóa/nhóm nhập, nút copy link, nút đổi "Bạn là ai"), `WhoAmI` (mở khi `me === null`), `OfflineBanner` (`useOnlineStatus` + `hasPendingWrites`), Tabs "Tổng kết & Thanh toán" (tạm: thẻ số dư của tôi + `SummaryTable`; cảnh báo nếu `invalidExpenseIds.length > 0`) và "Chi tiêu" (`ExpenseList` + nút **+** nổi góc dưới phải khi `canAddExpense`; chạm khoản → xem phần chia + Sửa/Xóa khi `canEditExpense`; Xóa qua `AlertDialog`). Lỗi `permission-denied` khi ghi → toast "Chuyến đã khóa hoặc chưa cho phép nhập".
-- [ ] **Step 6:** Thủ công trên emulator: nhập đủ 4 khoản của Google Sheet mẫu → bảng hiện Sang `+826.250đ`, Chung `-273.750đ`, Mơ `-273.750đ`, Phụng `-278.750đ`; tab ẩn danh với `allowGuestExpenses=false` không thấy nút **+**.
-- [ ] **Step 7:** Commit `feat(trip): trip page shell, summary and expense entry`.
+- [x] **Step 2:** `npm test -- src/components` → FAIL.
+- [x] **Step 3:** Cài `MoneyInput`, `MemberChips` (shadcn `ToggleGroup`), `ExpenseForm` theo §9 (preview gọi `computeShares` mỗi lần đổi; mục "Chia không đều" và "Thêm chi tiết" thu gọn mặc định).
+- [x] **Step 4:** `npm test -- src/components` → PASS.
+- [x] **Step 5:** Cài `TripPage` theo §9 (phần không phụ thuộc Task 14): xử lý `TripState` — `loading` Skeleton; `not-found` "Link không đúng hoặc chuyến đã bị xóa"; `offline-empty` "Không tải được chuyến đi — kiểm tra mạng rồi thử lại"; `error` Alert + nút "Thử lại". Header (tên, ngày, tổng chi, badge khóa/nhóm nhập, nút copy link, nút đổi "Bạn là ai"), `WhoAmI` (mở khi `me === null`), `OfflineBanner` (`useOnlineStatus` + `hasPendingWrites`), Tabs "Tổng kết & Thanh toán" (tạm: thẻ số dư của tôi + `SummaryTable`; cảnh báo nếu `invalidExpenseIds.length > 0`) và "Chi tiêu" (`ExpenseList` + nút **+** nổi góc dưới phải khi `canAddExpense`; chạm khoản → xem phần chia + Sửa/Xóa khi `canEditExpense`; Xóa qua `AlertDialog`). Lỗi `permission-denied` khi ghi → toast "Chuyến đã khóa hoặc chưa cho phép nhập".
+- [x] **Step 6:** Thủ công trên emulator: nhập đủ 4 khoản của Google Sheet mẫu → bảng hiện Sang `+826.250đ`, Chung `-273.750đ`, Mơ `-273.750đ`, Phụng `-278.750đ`; tab ẩn danh với `allowGuestExpenses=false` không thấy nút **+**.
+- [x] **Step 7:** Commit `feat(trip): trip page shell, summary and expense entry`.
 
 ---
 
