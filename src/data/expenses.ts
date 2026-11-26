@@ -13,6 +13,7 @@ import {
   updateDoc,
 } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
+import { logError } from '@/lib/logger'
 import type { VND } from '@/lib/types'
 import { db, setPendingWritesSource } from './firebase'
 import type { Expense, ExpenseDoc } from './types'
@@ -85,7 +86,8 @@ export function useExpenses(tripId: string): ExpensesState {
           })
         setEntry({ tripId, state: { status: 'ok', expenses } })
       },
-      () => {
+      (err) => {
+        logError('expenses.subscribe', err, { tripId })
         setPendingWritesSource('expenses', false)
         setEntry({ tripId, state: { status: 'error', expenses: [] } })
       },

@@ -14,6 +14,7 @@ import { getMemberQr } from '@/data/memberQrs'
 import type { Member } from '@/data/types'
 import { useOnlineStatus } from '@/hooks/useOnlineStatus'
 import { findBank } from '@/lib/banks'
+import { logError, logWarn } from '@/lib/logger'
 import { formatVND } from '@/lib/money'
 import type { Transfer } from '@/lib/types'
 import { buildVietQrUrl, defaultTransferNote } from '@/lib/vietqr'
@@ -59,7 +60,11 @@ async function copyField(text: string, label: string) {
   try {
     await navigator.clipboard.writeText(text)
     toast.success(`Đã copy ${label}`)
-  } catch {
+  } catch (error) {
+    logWarn('qr.copyField', 'Không copy được thông tin chuyển khoản', {
+      field: label,
+      reason: error instanceof Error ? error.message : String(error),
+    })
     toast.error(`Không thể copy ${label} tự động.`)
   }
 }
@@ -138,7 +143,8 @@ export function QrSheet({
       } else {
         setMomoState({ status: 'empty' })
       }
-    } catch {
+    } catch (error) {
+      logError('qr.loadMomo', error, { tripId, memberId: to.id })
       momoRequestedKeyRef.current = null
       setMomoState({ status: 'error' })
     }
@@ -260,7 +266,12 @@ export function QrSheet({
           src={qrUrl}
           alt={`Mã VietQR chuyển cho ${to.name}`}
           referrerPolicy="no-referrer"
-          onError={() => setImgError(true)}
+          onError={() => {
+            logWarn('qr.vietqrImageError', 'Ảnh VietQR lỗi, chuyển sang chế độ copy chữ', {
+              memberId: to.id,
+            })
+            setImgError(true)
+          }}
           className="w-full max-w-[260px] rounded-xl border bg-white p-2 object-contain"
         />
       </div>

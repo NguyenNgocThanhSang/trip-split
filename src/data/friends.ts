@@ -14,6 +14,7 @@ import {
   updateDoc,
 } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
+import { logError } from '@/lib/logger'
 import { db } from './firebase'
 import type { Friend, FriendDoc } from './types'
 
@@ -48,7 +49,8 @@ export function useFriends(): FriendsState {
           .sort((a, b) => a.name.localeCompare(b.name, 'vi'))
         setState({ status: 'ok', friends })
       },
-      () => {
+      (err) => {
+        logError('friends.subscribe', err)
         setState({ status: 'error', friends: [] })
       },
     )

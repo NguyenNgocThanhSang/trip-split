@@ -61,6 +61,7 @@ import type { Expense, Payment, Trip } from '@/data/types'
 import { useMe } from '@/hooks/useMe'
 import { computeBalances } from '@/lib/balances'
 import { formatDateVN } from '@/lib/date'
+import { logError, logInfo, logWarn } from '@/lib/logger'
 import { formatVND } from '@/lib/money'
 import { buildGroupReminder, buildPersonalReminder, parsePayParam } from '@/lib/reminder'
 import { settle } from '@/lib/settle'
@@ -87,10 +88,12 @@ function isPermissionDenied(error: unknown): boolean {
  * chỉ hoàn tất khi có mạng trở lại — vì vậy cần trả về ngay để đóng modal không bị treo,
  * đồng thời vẫn gắn `.catch()` để báo toast nếu máy chủ từ chối khi đồng bộ lại.
  *
+ * @param context - Ngữ cảnh thao tác để ghi log lỗi hoặc trạng thái xếp hàng ngoại tuyến
  * @param writePromise - Promise thao tác ghi Firestore (`addDoc`, `updateDoc`, `deleteDoc`)
  * @param messages - Các chuỗi thông báo tiếng Việt khi thành công trực tuyến, xếp hàng ngoại tuyến và khi lỗi
  */
 async function runTripWrite(
+  context: string,
   writePromise: Promise<unknown>,
   messages: {
     onlineSuccess: string
@@ -99,6 +102,7 @@ async function runTripWrite(
   },
 ): Promise<void> {
   const reportWriteError = (error: unknown) => {
+    logError(context, error)
     toast.error(
       isPermissionDenied(error)
         ? 'Chuyến đã khóa hoặc chưa cho phép nhập'
@@ -107,6 +111,7 @@ async function runTripWrite(
   }
 
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    logInfo(context, 'Đã xếp hàng thao tác ghi ngoại tuyến chờ đồng bộ')
     void writePromise.catch(reportWriteError)
     toast.success(messages.offlineQueued)
     return
@@ -263,7 +268,11 @@ function TripLoadedView({
     try {
       await navigator.clipboard.writeText(`${window.location.origin}/t/${trip.id}`)
       toast.success('Đã copy link')
-    } catch {
+    } catch (error) {
+      logWarn('trip.copyLink', 'Không copy được link chuyến đi', {
+        tripId: trip.id,
+        reason: error instanceof Error ? error.message : String(error),
+      })
       toast.error('Không thể copy tự động. Hãy sao chép từ thanh địa chỉ.')
     }
   }
@@ -289,7 +298,11 @@ function TripLoadedView({
     try {
       await navigator.clipboard.writeText(text)
       toast.success('Đã copy tin nhắn nhắc nợ')
-    } catch {
+    } catch (error) {
+      logWarn('trip.copyPersonalReminder', 'Không copy được tin nhắn nhắc nợ riêng', {
+        tripId: trip.id,
+        reason: error instanceof Error ? error.message : String(error),
+      })
       toast.error('Không thể copy tự động. Vui lòng thử lại.')
     }
   }
@@ -321,7 +334,8 @@ function TripLoadedView({
         {},
       )
       toast.success(successText)
-    } catch {
+    } catch (error) {
+      logError('trip.toggleFlag', error, { tripId: trip.id })
       toast.error('Không thể cập nhật thiết lập chuyến. Vui lòng thử lại.')
     } finally {
       setIsUpdatingTripFlag(false)
@@ -353,17 +367,25 @@ function TripLoadedView({
    */
   async function handleSubmitExpense(values: ExpenseFormValues) {
     if (editingExpense) {
-      await runTripWrite(updateExpense(db, trip.id, editingExpense.id, values), {
-        onlineSuccess: 'Đã cập nhật khoản chi.',
-        offlineQueued: 'Đã lưu tạm khoản chi, sẽ tự đồng bộ khi có mạng.',
-        fallbackError: 'Không thể lưu khoản chi. Vui lòng thử lại.',
-      })
+      await runTripWrite(
+        'trip.updateExpense',
+        updateExpense(db, trip.id, editingExpense.id, values),
+        {
+          onlineSuccess: 'Đã cập nhật khoản chi.',
+          offlineQueued: 'Đã lưu tạm khoản chi, sẽ tự đồng bộ khi có mạng.',
+          fallbackError: 'Không thể lưu khoản chi. Vui lòng thử lại.',
+        },
+      )
     } else {
-      await runTripWrite(addExpense(db, trip.id, values, isAdmin ? 'admin' : 'guest'), {
-        onlineSuccess: 'Đã thêm khoản chi.',
-        offlineQueued: 'Đã lưu tạm khoản chi, sẽ tự đồng bộ khi có mạng.',
-        fallbackError: 'Không thể lưu khoản chi. Vui lòng thử lại.',
-      })
+      await runTripWrite(
+        'trip.addExpense',
+        addExpense(db, trip.id, values, isAdmin ? 'admin' : 'guest'),
+        {
+          onlineSuccess: 'Đã thêm khoản chi.',
+          offlineQueued: 'Đã lưu tạm khoản chi, sẽ tự đồng bộ khi có mạng.',
+          fallbackError: 'Không thể lưu khoản chi. Vui lòng thử lại.',
+        },
+      )
     }
     setExpenseModalOpen(false)
     setEditingExpense(null)
@@ -375,7 +397,7 @@ function TripLoadedView({
    * @param expenseId - Mã document khoản chi cần xóa
    */
   async function handleDeleteExpense(expenseId: string) {
-    await runTripWrite(deleteExpense(db, trip.id, expenseId), {
+    await runTripWrite('trip.deleteExpense', deleteExpense(db, trip.id, expenseId), {
       onlineSuccess: 'Đã xóa khoản chi.',
       offlineQueued: 'Đã lưu tạm thao tác xóa, sẽ tự đồng bộ khi có mạng.',
       fallbackError: 'Không thể xóa khoản chi. Vui lòng thử lại.',
@@ -391,6 +413,7 @@ function TripLoadedView({
   async function handleConfirmPayment(amount: VND, note: string) {
     if (!markPaidTransfer) return
     await runTripWrite(
+      'trip.addPayment',
       addPayment(
         db,
         trip.id,
@@ -417,7 +440,7 @@ function TripLoadedView({
    * @param payment - Bản ghi thanh toán cần hoàn tác
    */
   async function handleUndoPayment(payment: Payment) {
-    await runTripWrite(deletePayment(db, trip.id, payment.id), {
+    await runTripWrite('trip.deletePayment', deletePayment(db, trip.id, payment.id), {
       onlineSuccess: 'Đã hoàn tác thanh toán.',
       offlineQueued: 'Đã lưu tạm thao tác hoàn tác, sẽ tự đồng bộ khi có mạng.',
       fallbackError: 'Không thể hoàn tác lúc này. Vui lòng thử lại.',

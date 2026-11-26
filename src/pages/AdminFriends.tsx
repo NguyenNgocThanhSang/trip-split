@@ -38,6 +38,7 @@ import { deleteFriend, saveFriend, useFriends } from '@/data/friends'
 import type { Friend } from '@/data/types'
 import { findBank } from '@/lib/banks'
 import { compressQrImage } from '@/lib/image'
+import { logError } from '@/lib/logger'
 import { toAscii } from '@/lib/vietqr'
 
 const ACCOUNT_NO_PATTERN = /^[0-9A-Za-z]+$/
@@ -145,6 +146,7 @@ export function AdminFriends() {
       const compressed = await compressQrImage(file)
       setMomoQrDataUrl(compressed)
     } catch (error) {
+      logError('friends.compressQr', error)
       const message =
         error instanceof Error && error.message === 'Ảnh quá lớn'
           ? 'Ảnh quá lớn ngay cả sau khi nén. Vui lòng chọn ảnh QR rõ hơn hoặc cắt gọn viền.'
@@ -192,7 +194,8 @@ export function AdminFriends() {
 
       toast.success(editingFriend ? 'Đã cập nhật thông tin bạn bè.' : 'Đã thêm bạn vào danh bạ.')
       setModalOpen(false)
-    } catch {
+    } catch (error) {
+      logError('friends.save', error, { isEditing: Boolean(editingFriend) })
       toast.error('Không thể lưu danh bạ. Vui lòng thử lại.')
     } finally {
       setIsSaving(false)
@@ -223,7 +226,8 @@ export function AdminFriends() {
       await deleteFriend(db, target.id)
       toast.success(`Đã xóa ${target.name} khỏi danh bạ.`)
       setDeletingFriend(null)
-    } catch {
+    } catch (error) {
+      logError('friends.delete', error, { friendId: target.id })
       toast.error('Không thể xóa lúc này. Vui lòng thử lại.')
     } finally {
       setIsDeleting(false)

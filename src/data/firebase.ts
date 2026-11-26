@@ -11,6 +11,7 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
 } from 'firebase/firestore'
+import { logInfo } from '@/lib/logger'
 
 // Firebase web config không phải bí mật; fallback demo giúp test/emulator chạy không cần .env.local
 const firebaseConfig = {
@@ -43,6 +44,7 @@ export const auth: Auth = getAuth(app)
 if (import.meta.env.VITE_USE_EMULATOR === 'true') {
   connectFirestoreEmulator(db, '127.0.0.1', 8080)
   connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true })
+  logInfo('firebase.emulator', 'Đã kết nối Auth & Firestore Emulator (127.0.0.1)')
 }
 
 // Theo dõi trạng thái ghi chờ đồng bộ từ các listener đang mở của trang chuyến đi

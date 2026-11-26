@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { signInWithGoogle, signOut, useAdmin } from '@/data/auth'
+import { logError, logWarn } from '@/lib/logger'
 
 /**
  * Chuyển đổi mã lỗi Firebase Auth khi mở popup Google sang thông báo tiếng Việt dễ hiểu.
@@ -67,7 +68,13 @@ export function AdminLogin() {
     try {
       await signInWithGoogle()
     } catch (error) {
-      toast.error(getSignInErrorMessage(error))
+      const message = getSignInErrorMessage(error)
+      if (message.includes('đóng cửa sổ')) {
+        logWarn('auth.signIn', message)
+      } else {
+        logError('auth.signIn', error)
+      }
+      toast.error(message)
     } finally {
       setIsSubmitting(false)
     }
@@ -81,7 +88,8 @@ export function AdminLogin() {
     try {
       await signOut()
       toast.success('Đã đăng xuất.')
-    } catch {
+    } catch (error) {
+      logError('auth.signOut', error)
       toast.error('Không thể đăng xuất lúc này. Vui lòng thử lại.')
     } finally {
       setIsSubmitting(false)

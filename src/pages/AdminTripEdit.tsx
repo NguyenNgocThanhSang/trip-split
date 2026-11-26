@@ -43,6 +43,7 @@ import {
   useTrip,
 } from '@/data/trips'
 import type { Expense, Friend, Member, Payment, Trip } from '@/data/types'
+import { logError, logWarn } from '@/lib/logger'
 import { memberInUse } from '@/lib/members'
 
 /** Mục chọn thành viên kết hợp giữa danh bạ hiện hành và thành viên cũ đã lưu trong chuyến. */
@@ -162,7 +163,11 @@ function TripEditorForm({
     try {
       await navigator.clipboard.writeText(`${window.location.origin}/t/${initialTrip.id}`)
       toast.success('Đã copy link')
-    } catch {
+    } catch (error) {
+      logWarn('tripEdit.copyLink', 'Không copy được link chia sẻ', {
+        tripId: initialTrip.id,
+        reason: error instanceof Error ? error.message : String(error),
+      })
       toast.error('Không thể copy tự động. Hãy sao chép trực tiếp từ thanh địa chỉ.')
     }
   }
@@ -284,7 +289,8 @@ function TripEditorForm({
         setPendingQrs({})
         toast.success('Đã lưu thay đổi.')
       }
-    } catch {
+    } catch (error) {
+      logError('tripEdit.save', error, { isEditing, tripId: initialTrip?.id })
       toast.error('Không thể lưu chuyến đi. Vui lòng thử lại.')
     } finally {
       setIsSaving(false)
@@ -314,7 +320,8 @@ function TripEditorForm({
       toast.success(`Đã xóa chuyến "${initialTrip.name}".`)
       setDeleteDialogOpen(false)
       navigate('/admin/trips', { replace: true })
-    } catch {
+    } catch (error) {
+      logError('tripEdit.delete', error, { tripId: initialTrip.id })
       toast.error('Không thể xóa chuyến đi lúc này. Vui lòng thử lại.')
     } finally {
       setIsDeleting(false)

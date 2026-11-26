@@ -3,6 +3,7 @@
  * Đối chiếu với danh sách `memberIds` hiện hành để tự động xóa chọn nếu thành viên đó không còn trong chuyến.
  */
 import { useCallback, useState } from 'react'
+import { logWarn } from '@/lib/logger'
 
 /** Kết quả trả về của hook `useMe`. */
 export interface UseMeResult {
@@ -38,6 +39,7 @@ function readStoredMe(tripId: string): string | null {
     return window.localStorage.getItem(storageKey(tripId))
   } catch {
     // Chế độ duyệt web riêng tư trên một số trình duyệt có thể ném SecurityError khi đọc storage
+    logWarn('useMe.storage', 'Không đọc được lựa chọn từ localStorage', { action: 'read' })
     return null
   }
 }
@@ -85,6 +87,7 @@ export function useMe(tripId: string, memberIds: string[]): UseMeResult {
         window.localStorage.setItem(storageKey(tripId), id)
       } catch {
         // Vẫn cập nhật state bộ nhớ tạm để người dùng tiếp tục dùng trong phiên hiện tại
+        logWarn('useMe.storage', 'Không lưu được lựa chọn vào localStorage', { action: 'write' })
       }
       setEntry({ tripId, stored: id })
     },
@@ -99,6 +102,7 @@ export function useMe(tripId: string, memberIds: string[]): UseMeResult {
       window.localStorage.removeItem(storageKey(tripId))
     } catch {
       // Bỏ qua lỗi quyền truy cập storage ở chế độ riêng tư
+      logWarn('useMe.storage', 'Không xóa được lựa chọn khỏi localStorage', { action: 'remove' })
     }
     setEntry({ tripId, stored: null })
   }, [tripId])

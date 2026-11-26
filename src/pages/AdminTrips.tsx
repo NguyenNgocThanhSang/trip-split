@@ -25,6 +25,7 @@ import { db } from '@/data/firebase'
 import { updateTrip, useTripList } from '@/data/trips'
 import type { Trip } from '@/data/types'
 import { formatDateVN } from '@/lib/date'
+import { logError, logWarn } from '@/lib/logger'
 
 /**
  * Định dạng khoảng ngày đi/về tiếng Việt cho thẻ chuyến đi, hoặc trả `null` nếu chưa đặt ngày.
@@ -69,7 +70,11 @@ export function AdminTrips() {
     try {
       await navigator.clipboard.writeText(url)
       toast.success('Đã copy link')
-    } catch {
+    } catch (error) {
+      logWarn('trips.copyLink', 'Không copy được link chuyến đi', {
+        tripId,
+        reason: error instanceof Error ? error.message : String(error),
+      })
       toast.error('Không thể copy tự động. Hãy mở trang chuyến rồi sao chép URL.')
     }
   }
@@ -97,7 +102,8 @@ export function AdminTrips() {
         {},
       )
       toast.success(nextLocked ? `Đã khóa sổ "${trip.name}".` : `Đã mở lại "${trip.name}".`)
-    } catch {
+    } catch (error) {
+      logError('trips.toggleLock', error, { tripId: trip.id, nextLocked })
       toast.error('Không thể cập nhật trạng thái khóa. Vui lòng thử lại.')
     } finally {
       setTogglingTripId(null)
@@ -112,7 +118,8 @@ export function AdminTrips() {
     try {
       await signOut()
       toast.success('Đã đăng xuất.')
-    } catch {
+    } catch (error) {
+      logError('auth.signOut', error)
       toast.error('Không thể đăng xuất lúc này. Vui lòng thử lại.')
     } finally {
       setIsSigningOut(false)

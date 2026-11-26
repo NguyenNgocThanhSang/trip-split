@@ -12,6 +12,7 @@ import {
   serverTimestamp,
 } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
+import { logError } from '@/lib/logger'
 import type { VND } from '@/lib/types'
 import { db, getHasPendingWrites, setPendingWritesSource } from './firebase'
 import type { Payment, PaymentDoc } from './types'
@@ -65,7 +66,8 @@ export function usePayments(tripId: string): PaymentsState {
           })
         setEntry({ tripId, state: { status: 'ok', payments } })
       },
-      () => {
+      (err) => {
+        logError('payments.subscribe', err, { tripId })
         setPendingWritesSource('payments', false)
         setEntry({ tripId, state: { status: 'error', payments: [] } })
       },

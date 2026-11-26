@@ -5,6 +5,7 @@
 import { Copy, Share2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { logWarn } from '@/lib/logger'
 
 /** Props của component `ReminderActions`. */
 export interface ReminderActionsProps {
@@ -44,7 +45,10 @@ export function ReminderActions({ text }: ReminderActionsProps) {
     try {
       await navigator.clipboard.writeText(text)
       toast.success('Đã copy tin nhắn')
-    } catch {
+    } catch (error) {
+      logWarn('reminder.copy', 'Không copy được tin nhắn nhắc nợ', {
+        reason: error instanceof Error ? error.message : String(error),
+      })
       toast.error('Không thể copy tự động. Hãy chạm giữ đoạn tin nhắn ở trên để sao chép.')
     }
   }
@@ -63,6 +67,9 @@ export function ReminderActions({ text }: ReminderActionsProps) {
       if (isAbortError(error)) {
         return
       }
+      logWarn('reminder.shareFallback', 'Web Share thất bại, chuyển sang copy clipboard', {
+        reason: error instanceof Error ? error.message : String(error),
+      })
       await copyMessage()
     }
   }

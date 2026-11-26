@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore'
 import { useEffect, useState } from 'react'
 import { randomId } from '@/lib/id'
+import { logError } from '@/lib/logger'
 import { db, setPendingWritesSource } from './firebase'
 import type { Friend, Member, Trip, TripDoc } from './types'
 
@@ -139,6 +140,7 @@ export function useTrip(tripId: string): TripState {
         }
       },
       (err) => {
+        logError('trip.subscribe', err, { tripId })
         setPendingWritesSource('trip', false)
         setEntry({ tripId, state: { status: 'error', message: err.message } })
       },
@@ -178,7 +180,8 @@ export function useTripList(): TripListState {
           })
         setState({ status: 'ok', trips })
       },
-      () => {
+      (err) => {
+        logError('trips.subscribe', err)
         setState({ status: 'error', trips: [] })
       },
     )
