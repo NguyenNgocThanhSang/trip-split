@@ -625,12 +625,12 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   // localStorage key: `tripsplit:me:${tripId}`
   ```
 
-- [ ] **Step 1:** Test `resolveMe` (Review Focus #5): `('sang', ['sang','mo'])` → `'sang'`; `('ghost', ['sang'])` → `null`; `(null, [...])` → `null`.
+- [x] **Step 1:** Test `resolveMe` (Review Focus #5): `('sang', ['sang','mo'])` → `'sang'`; `('ghost', ['sang'])` → `null`; `(null, [...])` → `null`.
   Test `AdminTripEdit` (mock data hooks): chọn < 2 bạn → nút Lưu disable kèm "Cần ít nhất 2 thành viên"; bỏ tick thành viên mà `memberInUse` = true → checkbox bị khóa kèm "Đã có trong khoản chi/thanh toán"; Lưu → `createTrip` nhận `members` đúng thứ tự tick và `qrs` chỉ gồm người có ảnh.
-- [ ] **Step 2:** `npm test -- src/hooks src/pages/AdminTripEdit` → FAIL.
-- [ ] **Step 3:** Cài `useMe`. `AdminTrips`: danh sách (mới nhất trước), mỗi dòng tên + ngày + badge khóa, nút copy link (`${location.origin}/t/${id}`, toast "Đã copy link"), switch khóa nhanh (`updateTrip`). `AdminTripEdit` cho `/admin/trips/new` và `/admin/trips/:tripId`: tên, ngày đi/về, tick thành viên từ danh bạ, nút "Cập nhật từ danh bạ" (thay snapshot thông tin ngân hàng + QR của các thành viên hiện có), switch "Cho phép nhóm nhập", switch "Khóa sổ", copy link, xóa chuyến (`AlertDialog` → `deleteTripCascade` → về `/admin/trips`). Lưu xong mới → chuyển tới `/admin/trips/:id`.
-- [ ] **Step 4:** `npm test` PASS. Thủ công: tạo chuyến "Đà Lạt 2026" với 4 người; mở link trong tab ẩn danh thấy trang (placeholder) không lỗi permission.
-- [ ] **Step 5:** Commit `feat(admin): trip list and editor; who-am-i hook`.
+- [x] **Step 2:** `npm test -- src/hooks src/pages/AdminTripEdit` → FAIL.
+- [x] **Step 3:** Cài `useMe`. `AdminTrips`: danh sách (mới nhất trước), mỗi dòng tên + ngày + badge khóa, nút copy link (`${location.origin}/t/${id}`, toast "Đã copy link"), switch khóa nhanh (`updateTrip`). `AdminTripEdit` cho `/admin/trips/new` và `/admin/trips/:tripId`: tên, ngày đi/về, tick thành viên từ danh bạ, nút "Cập nhật từ danh bạ" (thay snapshot thông tin ngân hàng + QR của các thành viên hiện có), switch "Cho phép nhóm nhập", switch "Khóa sổ", copy link, xóa chuyến (`AlertDialog` → `deleteTripCascade` → về `/admin/trips`). Lưu xong mới → chuyển tới `/admin/trips/:id`.
+- [x] **Step 4:** `npm test` PASS. Thủ công: tạo chuyến "Đà Lạt 2026" với 4 người; mở link trong tab ẩn danh thấy trang (placeholder) không lỗi permission.
+- [x] **Step 5:** Commit `feat(admin): trip list and editor; who-am-i hook`.
 
 ---
 
