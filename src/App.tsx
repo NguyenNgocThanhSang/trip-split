@@ -5,6 +5,7 @@
 import { BrowserRouter, Route, Routes } from 'react-router-dom'
 import { AdminGuard } from '@/components/AdminGuard'
 import { Toaster } from '@/components/ui/sonner'
+import { AdminFriends } from '@/pages/AdminFriends'
 import { AdminLogin } from '@/pages/AdminLogin'
 import { HomePage } from '@/pages/HomePage'
 import { NotFound } from '@/pages/NotFound'
@@ -29,7 +30,7 @@ export function App() {
             <Route path="/admin/trips" element={<div>Danh sách chuyến đi</div>} />
             <Route path="/admin/trips/new" element={<div>Tạo chuyến đi mới</div>} />
             <Route path="/admin/trips/:tripId" element={<div>Chỉnh sửa chuyến đi</div>} />
-            <Route path="/admin/friends" element={<div>Danh bạ bạn bè</div>} />
+            <Route path="/admin/friends" element={<AdminFriends />} />
           </Route>
 
           <Route path="*" element={<NotFound />} />

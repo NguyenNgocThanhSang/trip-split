@@ -602,11 +602,11 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   export function BankPicker(p: { value?: string; onChange(bin: string): void }): JSX.Element; // shadcn Command trong Popover, tìm theo shortName/code/name
   ```
 
-- [ ] **Step 1:** Test (jsdom) cho `AdminFriends` với `useFriends`/`saveFriend` được mock bằng `vi.mock('@/data/friends')`: điền tên "Sang", chọn ngân hàng, STK `0123456789`, chủ TK `"Nguyễn Ngọc Sang"` → `saveFriend` được gọi với `accountName: 'NGUYEN NGOC SANG'`, `bankBin: '970436'`, `bankShortName: 'Vietcombank'`; tên rỗng → nút Lưu bị disable; STK có ký tự ngoài `[0-9A-Za-z]` → báo lỗi, không gọi `saveFriend`.
-- [ ] **Step 2:** `npm test -- src/pages/AdminFriends` → FAIL.
-- [ ] **Step 3:** Cài `image.ts`, `useMediaQuery`, `ResponsiveModal` (`(min-width: 768px)` → Dialog, ngược lại Drawer), `BankPicker`, `AdminFriends` (danh sách + nút thêm/sửa/xóa có `AlertDialog` xác nhận; form trong `ResponsiveModal`; tải ảnh QR MoMo qua `<input type="file" accept="image/*">` → `compressQrImage` → preview; lỗi → toast). Route `/admin/friends` trong `AdminGuard`.
-- [ ] **Step 4:** `npm test` PASS. Thủ công trên emulator: thêm 4 bạn (Sang, Chung, Mơ, Phụng), một người có ảnh QR; kiểm Emulator UI doc `friends` có `momoQrDataUrl` < 100.000 ký tự.
-- [ ] **Step 5:** Commit `feat(admin): friend directory with bank picker and QR compression`.
+- [x] **Step 1:** Test (jsdom) cho `AdminFriends` với `useFriends`/`saveFriend` được mock bằng `vi.mock('@/data/friends')`: điền tên "Sang", chọn ngân hàng, STK `0123456789`, chủ TK `"Nguyễn Ngọc Sang"` → `saveFriend` được gọi với `accountName: 'NGUYEN NGOC SANG'`, `bankBin: '970436'`, `bankShortName: 'Vietcombank'`; tên rỗng → nút Lưu bị disable; STK có ký tự ngoài `[0-9A-Za-z]` → báo lỗi, không gọi `saveFriend`.
+- [x] **Step 2:** `npm test -- src/pages/AdminFriends` → FAIL.
+- [x] **Step 3:** Cài `image.ts`, `useMediaQuery`, `ResponsiveModal` (`(min-width: 768px)` → Dialog, ngược lại Drawer), `BankPicker`, `AdminFriends` (danh sách + nút thêm/sửa/xóa có `AlertDialog` xác nhận; form trong `ResponsiveModal`; tải ảnh QR MoMo qua `<input type="file" accept="image/*">` → `compressQrImage` → preview; lỗi → toast). Route `/admin/friends` trong `AdminGuard`.
+- [x] **Step 4:** `npm test` PASS. Thủ công trên emulator: thêm 4 bạn (Sang, Chung, Mơ, Phụng), một người có ảnh QR; kiểm Emulator UI doc `friends` có `momoQrDataUrl` < 100.000 ký tự.
+- [x] **Step 5:** Commit `feat(admin): friend directory with bank picker and QR compression`.
 
 ---
 
