@@ -409,7 +409,7 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   export function memberInUse(memberId: string, expenses: ExpenseInput[], payments: PaymentInput[]): boolean;
   ```
 
-- [ ] **Step 1: Viết test thất bại**
+- [x] **Step 1: Viết test thất bại**
   ```ts
   const nameOf = (id: string) => ({ sang: 'Sang', chung: 'Chung', mo: 'Mơ', phung: 'Phụng' }[id]!);
   it('group reminder', () => {
@@ -454,10 +454,10 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
   ```
   `id.test.ts`: 1.000 lần `randomId()` → mỗi lần dài 10, mọi ký tự thuộc `ID_ALPHABET`, khớp `/^[a-z0-9]{10}$/`, không trùng nhau.
   `members.test.ts`: `true` khi là payer, là participant, là `fromId` hoặc `toId` của payment; `false` khi không xuất hiện.
-- [ ] **Step 2:** `npm test -- src/lib` → FAIL ở 3 file mới.
-- [ ] **Step 3:** Cài ba module. `randomId` lấy byte ngẫu nhiên và loại byte ≥ `248` (bội của 31 gần 256 nhất) để không lệch phân phối.
-- [ ] **Step 4:** `npm test` → toàn bộ PASS.
-- [ ] **Step 5:** Commit `feat(lib): reminders, pay deep links, random ids, member usage`.
+- [x] **Step 2:** `npm test -- src/lib` → FAIL ở 3 file mới.
+- [x] **Step 3:** Cài ba module. `randomId` lấy byte ngẫu nhiên và loại byte ≥ `248` (bội của 31 gần 256 nhất) để không lệch phân phối.
+- [x] **Step 4:** `npm test` → toàn bộ PASS.
+- [x] **Step 5:** Commit `feat(lib): reminders, pay deep links, random ids, member usage`.
 
 ---
 
