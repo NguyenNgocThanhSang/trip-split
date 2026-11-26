@@ -735,7 +735,7 @@ Như `DESIGN.md` §5, cộng thêm (quyết định của plan này):
 
 - [ ] **Step 1:** `npm test`, `npm run test:rules`, `npm run typecheck`, `npm run lint`, `npm run build` → tất cả PASS.
 - [ ] **Step 2:** Chạy đủ checklist §12.3 trên emulator: 2 thiết bị realtime; chế độ máy bay vẫn xem được và QR chuyển sang khối copy; ghi khi offline xếp hàng và đồng bộ khi có mạng (banner biến mất); viewport 375px không tràn ngang, ≥ 768px dùng Dialog; `locked` → khách không thấy nút ghi nào.
-- [ ] **Step 3:** Với mỗi lỗi tìm thấy: viết test tái hiện → sửa → test PASS → commit `fix: ...`.
+- [x] **Step 3:** Với mỗi lỗi tìm thấy: viết test tái hiện → sửa → test PASS → commit `fix: ...`.
 
 ---
 

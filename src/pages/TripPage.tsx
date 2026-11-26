@@ -669,7 +669,7 @@ function TripLoadedView({
           type="button"
           size="icon"
           aria-label="Thêm khoản chi"
-          className="fixed right-4 bottom-5 z-30 size-14 rounded-full shadow-lg"
+          className="fixed right-4 bottom-5 z-30 size-14 rounded-full shadow-lg sm:right-[max(1rem,calc(50%-240px+1rem))]"
           onClick={handleOpenAddExpense}
         >
           <Plus className="size-6" />

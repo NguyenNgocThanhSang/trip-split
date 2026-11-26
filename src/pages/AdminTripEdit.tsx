@@ -379,7 +379,8 @@ function TripEditorForm({
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
+              {/* Đặt min-w-0 để input[type="date"] không đẩy rộng cột grid trên màn hình hẹp 375px */}
+              <div className="flex min-w-0 flex-col gap-1.5">
                 <Label htmlFor="trip-start-date">Ngày đi</Label>
                 <Input
                   id="trip-start-date"
@@ -389,7 +390,7 @@ function TripEditorForm({
                   className="min-h-11"
                 />
               </div>
-              <div className="flex flex-col gap-1.5">
+              <div className="flex min-w-0 flex-col gap-1.5">
                 <Label htmlFor="trip-end-date">Ngày về</Label>
                 <Input
                   id="trip-end-date"

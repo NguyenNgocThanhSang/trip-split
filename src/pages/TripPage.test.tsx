@@ -11,7 +11,7 @@ import { useAdmin } from '@/data/auth'
 import { useExpenses } from '@/data/expenses'
 import { addPayment, usePayments } from '@/data/payments'
 import { useTrip } from '@/data/trips'
-import type { Expense, Trip } from '@/data/types'
+import type { Expense, Payment, Trip } from '@/data/types'
 import { TripPage } from './TripPage'
 
 vi.mock('@/data/firebase', () => ({
@@ -203,5 +203,100 @@ describe('TripPage deep-link ?pay=', () => {
       'guest',
     )
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('ẩn toàn bộ nút ghi đối với khách khi chuyến đã khóa sổ (locked = true)', async () => {
+    const user = userEvent.setup()
+    window.localStorage.setItem('tripsplit:me:trip123456', 'chung')
+    mockUseTrip.mockReturnValue({
+      status: 'ok',
+      trip: { ...sampleTrip, allowGuestExpenses: true, locked: true },
+    })
+    const guestExpense: Expense = {
+      id: 'e1',
+      name: 'Ăn tối',
+      amount: 200000,
+      payerId: 'sang',
+      participantIds: ['sang', 'chung'],
+      fixedAmounts: {},
+      note: '',
+      date: '2026-12-20',
+      createdBy: 'guest',
+      createdAt: ts,
+      updatedAt: ts,
+    }
+    const guestPayment: Payment = {
+      id: 'p1',
+      fromId: 'chung',
+      toId: 'sang',
+      amount: 50000,
+      note: '',
+      markedBy: 'guest',
+      paidAt: ts,
+    }
+    mockUseExpenses.mockReturnValue({ status: 'ok', expenses: [guestExpense] })
+    mockUsePayments.mockReturnValue({ status: 'ok', payments: [guestPayment] })
+
+    render(
+      <MemoryRouter initialEntries={['/t/trip123456']}>
+        <Routes>
+          <Route path="/t/:tripId" element={<TripPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Thêm khoản chi' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Đã chuyển' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Hoàn tác' })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /quét qr/i }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Tôi đã chuyển' })).not.toBeInTheDocument()
+    await user.keyboard('{Escape}')
+
+    await user.click(screen.getByRole('tab', { name: /chi tiêu/i }))
+    await user.click(screen.getByText('Ăn tối'))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Sửa' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Xóa' })).not.toBeInTheDocument()
+  })
+
+  it('tự chuyển QrSheet sang khối copy dạng chữ khi thiết bị đang ngoại tuyến (chế độ máy bay)', async () => {
+    const user = userEvent.setup()
+    Object.defineProperty(navigator, 'onLine', {
+      configurable: true,
+      value: false,
+    })
+    window.localStorage.setItem('tripsplit:me:trip123456', 'chung')
+    const sharedExpense: Expense = {
+      id: 'e1',
+      name: 'Tiền phòng',
+      amount: 200000,
+      payerId: 'sang',
+      participantIds: ['sang', 'chung'],
+      fixedAmounts: {},
+      note: '',
+      date: '2026-12-20',
+      createdBy: 'admin',
+      createdAt: ts,
+      updatedAt: ts,
+    }
+    mockUseExpenses.mockReturnValue({ status: 'ok', expenses: [sharedExpense] })
+
+    render(
+      <MemoryRouter initialEntries={['/t/trip123456']}>
+        <Routes>
+          <Route path="/t/:tripId" element={<TripPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByRole('status')).toHaveTextContent(/đang ngoại tuyến/i)
+
+    await user.click(screen.getByRole('button', { name: /quét qr/i }))
+    expect(screen.queryByRole('img', { name: /mã vietqr/i })).not.toBeInTheDocument()
+    expect(screen.getByText('Vietcombank')).toBeInTheDocument()
+    expect(screen.getByText('0123456789')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Copy STK' })).toBeInTheDocument()
   })
 })
