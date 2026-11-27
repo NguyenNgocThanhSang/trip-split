@@ -7,9 +7,15 @@ import { collection, doc, type Firestore, getDoc, getDocs, setLogLevel } from 'f
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { addExpense, deleteExpense, updateExpense } from '@/data/expenses'
 import { deleteFriend, saveFriend } from '@/data/friends'
+import {
+  bindMemberWithCode,
+  generateMissingSecrets,
+  rotateMemberSecret,
+} from '@/data/memberAccess'
 import { getMemberQr } from '@/data/memberQrs'
 import { addPayment, deletePayment } from '@/data/payments'
 import { createTrip, deleteTripCascade, updateTrip } from '@/data/trips'
+import type { MemberSecret } from '@/data/types'
 import { ADMIN_UID, makeEnv, seedBinding, seedMemberSecret } from '../helpers/env'
 
 const SAMPLE_QR = 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAAAAAAfQ//73v/+BiOh/AAA='
@@ -76,9 +82,15 @@ describe('Lớp dữ liệu Firestore (Emulator)', () => {
 
     expect(await getMemberQr(guestDb(), tripId, 'sang')).toBe(SAMPLE_QR)
     expect(await getMemberQr(guestDb(), tripId, 'chung')).toBeNull()
+
+    // createTrip tự sinh mã bí mật 12 ký tự cho từng thành viên trong cùng batch
+    const sangSecret = await getDoc(doc(db, 'trips', tripId, 'memberSecrets', 'sang'))
+    const chungSecret = await getDoc(doc(db, 'trips', tripId, 'memberSecrets', 'chung'))
+    expect(sangSecret.data()?.code).toMatch(/^[a-z0-9]{12}$/)
+    expect(chungSecret.data()?.code).toMatch(/^[a-z0-9]{12}$/)
   })
 
-  it('updateTrip cập nhật memberIds, xóa startDate rỗng, xóa QR cũ và thêm QR cho thành viên mới', async () => {
+  it('updateTrip cập nhật memberIds, xóa startDate rỗng, đồng bộ QR và memberSecrets theo thành viên thêm/gỡ', async () => {
     const db = adminDb()
     const tripId = await createTrip(
       db,
@@ -95,6 +107,8 @@ describe('Lớp dữ liệu Firestore (Emulator)', () => {
       },
       { sang: SAMPLE_QR },
     )
+    const sangCodeBefore = (await getDoc(doc(db, 'trips', tripId, 'memberSecrets', 'sang'))).data()?.code
+    const moCodeBefore = (await getDoc(doc(db, 'trips', tripId, 'memberSecrets', 'mo'))).data()?.code
 
     // Bỏ Chung, giữ Sang (xóa QR), thêm Phụng (có QR mới) trong 1 writeBatch
     await updateTrip(
@@ -112,6 +126,7 @@ describe('Lớp dữ liệu Firestore (Emulator)', () => {
         locked: false,
       },
       { sang: null, phung: SAMPLE_QR },
+      ['sang', 'chung', 'mo'],
     )
 
     const tripSnap = await getDoc(doc(db, 'trips', tripId))
@@ -121,6 +136,18 @@ describe('Lớp dữ liệu Firestore (Emulator)', () => {
     expect('startDate' in data).toBe(false)
     expect(await getMemberQr(db, tripId, 'sang')).toBeNull()
     expect(await getMemberQr(db, tripId, 'phung')).toBe(SAMPLE_QR)
+
+    // Thành viên cũ giữ nguyên mã, thành viên bị gỡ bị xóa mã, thành viên mới có mã 12 ký tự
+    expect((await getDoc(doc(db, 'trips', tripId, 'memberSecrets', 'sang'))).data()?.code).toBe(
+      sangCodeBefore,
+    )
+    expect((await getDoc(doc(db, 'trips', tripId, 'memberSecrets', 'mo'))).data()?.code).toBe(
+      moCodeBefore,
+    )
+    expect((await getDoc(doc(db, 'trips', tripId, 'memberSecrets', 'chung'))).exists()).toBe(false)
+    expect((await getDoc(doc(db, 'trips', tripId, 'memberSecrets', 'phung'))).data()?.code).toMatch(
+      /^[a-z0-9]{12}$/,
+    )
   })
 
   it('addExpense và addPayment với quyền khách đã bind tuân thủ schema rules và ghi đúng tác giả', async () => {
@@ -201,6 +228,48 @@ describe('Lớp dữ liệu Firestore (Emulator)', () => {
     expect((await getDocs(collection(guest, 'trips', tripId, 'expenses'))).empty).toBe(true)
   })
 
+  it('generateMissingSecrets chỉ tạo mã cho thành viên thiếu và rotateMemberSecret thu hồi binding cũ', async () => {
+    const db = adminDb()
+    const tripId = await createTrip(
+      db,
+      {
+        name: 'Nha Trang',
+        members: [
+          { id: 'sang', name: 'Sang', hasStaticQr: false },
+          { id: 'chung', name: 'Chung', hasStaticQr: false },
+        ],
+        allowGuestExpenses: false,
+        locked: false,
+      },
+      {},
+    )
+    const sangDoc = await getDoc(doc(db, 'trips', tripId, 'memberSecrets', 'sang'))
+    const chungCode = (await getDoc(doc(db, 'trips', tripId, 'memberSecrets', 'chung'))).data()!.code as string
+
+    // Khách bind bằng mã của Chung thành công
+    const guestUid = 'anon-chung-rotate'
+    const guest = env.authenticatedContext(guestUid).firestore() as unknown as Firestore
+    await bindMemberWithCode(guest, tripId, guestUid, 'chung', chungCode)
+    expect((await getDoc(doc(guest, 'trips', tripId, 'bindings', guestUid))).data()?.memberId).toBe('chung')
+
+    // Chỉ có Sang trong existingSecrets -> generateMissingSecrets giữ nguyên Sang và tạo mã cho thành viên thiếu
+    const existing: Record<string, MemberSecret> = {
+      sang: { id: 'sang', ...(sangDoc.data() as { code: string; updatedAt: MemberSecret['updatedAt'] }) },
+    }
+    const createdCount = await generateMissingSecrets(db, tripId, ['sang', 'chung'], existing)
+    expect(createdCount).toBe(1)
+    expect((await getDoc(doc(db, 'trips', tripId, 'memberSecrets', 'sang'))).data()?.code).toBe(
+      existing.sang.code,
+    )
+
+    // Xoay mã Chung -> mã mới khác mã cũ và binding cũ của Chung bị rules từ chối khi get
+    const currentChungCode = (await getDoc(doc(db, 'trips', tripId, 'memberSecrets', 'chung'))).data()!.code as string
+    const rotatedCode = await rotateMemberSecret(db, tripId, 'chung', currentChungCode)
+    expect(rotatedCode).toMatch(/^[a-z0-9]{12}$/)
+    expect(rotatedCode).not.toBe(currentChungCode)
+    await expect(getDoc(doc(guest, 'trips', tripId, 'bindings', guestUid))).rejects.toThrow()
+  })
+
   it('saveFriend và deleteFriend xử lý đúng các trường optional khi tạo và cập nhật', async () => {
     const db = adminDb()
     const friendId = await saveFriend(db, {
@@ -268,6 +337,16 @@ describe('Lớp dữ liệu Firestore (Emulator)', () => {
       'admin',
     )
 
+    const chungCode = (await getDoc(doc(db, 'trips', tripId, 'memberSecrets', 'chung'))).data()!.code as string
+    const guestUid = 'anon-chung-cascade'
+    await bindMemberWithCode(
+      env.authenticatedContext(guestUid).firestore() as unknown as Firestore,
+      tripId,
+      guestUid,
+      'chung',
+      chungCode,
+    )
+
     await deleteTripCascade(db, tripId)
 
     expect((await getDoc(doc(db, 'trips', tripId))).exists()).toBe(false)
@@ -277,6 +356,8 @@ describe('Lớp dữ liệu Firestore (Emulator)', () => {
       expect((await getDocs(collection(rawDb, 'trips', tripId, 'expenses'))).empty).toBe(true)
       expect((await getDocs(collection(rawDb, 'trips', tripId, 'payments'))).empty).toBe(true)
       expect((await getDocs(collection(rawDb, 'trips', tripId, 'memberQrs'))).empty).toBe(true)
+      expect((await getDocs(collection(rawDb, 'trips', tripId, 'memberSecrets'))).empty).toBe(true)
+      expect((await getDocs(collection(rawDb, 'trips', tripId, 'bindings'))).empty).toBe(true)
     })
   })
 })
