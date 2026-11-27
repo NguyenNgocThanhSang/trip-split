@@ -10,7 +10,7 @@ import { deleteFriend, saveFriend } from '@/data/friends'
 import { getMemberQr } from '@/data/memberQrs'
 import { addPayment, deletePayment } from '@/data/payments'
 import { createTrip, deleteTripCascade, updateTrip } from '@/data/trips'
-import { ADMIN_UID, makeEnv } from '../helpers/env'
+import { ADMIN_UID, makeEnv, seedBinding, seedMemberSecret } from '../helpers/env'
 
 const SAMPLE_QR = 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAAAAAAfQ//73v/+BiOh/AAA='
 
@@ -123,7 +123,7 @@ describe('Lớp dữ liệu Firestore (Emulator)', () => {
     expect(await getMemberQr(db, tripId, 'phung')).toBe(SAMPLE_QR)
   })
 
-  it('addExpense và addPayment với quyền khách tuân thủ schema rules và ghi đúng tác giả', async () => {
+  it('addExpense và addPayment với quyền khách đã bind tuân thủ schema rules và ghi đúng tác giả', async () => {
     const db = adminDb()
     const tripId = await createTrip(
       db,
@@ -139,7 +139,12 @@ describe('Lớp dữ liệu Firestore (Emulator)', () => {
       {},
     )
 
-    const guest = guestDb()
+    const guestUid = 'guest-uid-chung'
+    const guestIdentity = { uid: guestUid, memberId: 'chung' }
+    await seedMemberSecret(env, tripId, 'chung', 'chungcode1234')
+    await seedBinding(env, tripId, guestUid, 'chung', 'chungcode1234')
+
+    const guest = env.authenticatedContext(guestUid).firestore() as unknown as Firestore
     await addExpense(
       guest,
       tripId,
@@ -153,12 +158,15 @@ describe('Lớp dữ liệu Firestore (Emulator)', () => {
         date: '2026-12-20',
       },
       'guest',
+      guestIdentity,
     )
 
     const expSnap = await getDocs(collection(guest, 'trips', tripId, 'expenses'))
     expect(expSnap.size).toBe(1)
     const expDoc = expSnap.docs[0]
     expect(expDoc.data().createdBy).toBe('guest')
+    expect(expDoc.data().createdByUid).toBe(guestUid)
+    expect(expDoc.data().createdByMemberId).toBe('chung')
     expect(Object.values(expDoc.data()).every((v) => v !== undefined)).toBe(true)
 
     await updateExpense(guest, tripId, expDoc.id, {
@@ -178,10 +186,13 @@ describe('Lớp dữ liệu Firestore (Emulator)', () => {
       tripId,
       { fromId: 'chung', toId: 'sang', amount: 50000, note: '' },
       'guest',
+      guestIdentity,
     )
     const paySnap = await getDocs(collection(guest, 'trips', tripId, 'payments'))
     expect(paySnap.size).toBe(1)
     expect(paySnap.docs[0].data().markedBy).toBe('guest')
+    expect(paySnap.docs[0].data().createdByUid).toBe(guestUid)
+    expect(paySnap.docs[0].data().createdByMemberId).toBe('chung')
 
     await deletePayment(guest, tripId, paySnap.docs[0].id)
     expect((await getDocs(collection(guest, 'trips', tripId, 'payments'))).empty).toBe(true)

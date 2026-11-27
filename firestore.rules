@@ -1,6 +1,7 @@
 /**
  * Luật bảo mật Cloud Firestore cho TripSplit (Spark plan, không dùng Cloud Functions).
- * Không bao giờ cho phép `list` trên `trips`, không cho khách đọc `friends`, và không cho khách sửa thông tin chuyến/STK/QR.
+ * Không bao giờ cho phép `list` trên `trips`, không cho khách đọc `friends` hay `memberSecrets`,
+ * và không cho khách sửa thông tin chuyến/STK/QR hay giả mạo danh tính thành viên khác.
  */
 
 // ===============================================================
@@ -39,6 +40,8 @@
 //    - note: string (bắt buộc, 0..200 ký tự) - Ghi chú (chuỗi rỗng nếu không có)
 //    - date: string (bắt buộc, YYYY-MM-DD) - Ngày chi tiêu
 //    - createdBy: string (bắt buộc, 'admin' | 'guest', bất biến) - Nguồn tạo khoản chi
+//    - createdByUid: string (tùy chọn, 1..128 ký tự, bất biến; bắt buộc == request.auth.uid khi createdBy == 'guest', cấm có khi 'admin') - Auth UID của khách tạo khoản chi
+//    - createdByMemberId: string (tùy chọn, thuộc trip.memberIds, bất biến; bắt buộc == binding.memberId khi createdBy == 'guest', cấm có khi 'admin') - ID thành viên gắn với khách tạo khoản chi
 //    - createdAt: timestamp (bắt buộc, == request.time khi tạo, bất biến khi cập nhật)
 //    - updatedAt: timestamp (bắt buộc, == request.time)
 //
@@ -48,11 +51,22 @@
 //    - amount: int (bắt buộc, 1..1.000.000.000 VND) - Số tiền thực tế đã chuyển
 //    - note: string (bắt buộc, 0..120 ký tự) - Ghi chú thanh toán
 //    - markedBy: string (bắt buộc, 'admin' | 'guest') - Nguồn ghi nhận thanh toán
+//    - createdByUid: string (tùy chọn, 1..128 ký tự; bắt buộc == request.auth.uid khi markedBy == 'guest', cấm có khi 'admin') - Auth UID của khách ghi nhận thanh toán
+//    - createdByMemberId: string (tùy chọn, thuộc trip.memberIds; bắt buộc == binding.memberId và thuộc {fromId, toId} khi markedBy == 'guest', cấm có khi 'admin') - ID thành viên của khách ghi nhận
 //    - paidAt: timestamp (bắt buộc, == request.time) - Thời điểm ghi nhận thanh toán
 //
 // 5. Subcollection: trips/{tripId}/memberQrs/{memberId} (memberId thuộc trip.memberIds)
 //    - dataUrl: string (bắt buộc, <= 100.000 ký tự, data:image/(webp|jpeg|png);base64,...) - Ảnh QR MoMo tĩnh
 //    - updatedAt: timestamp (bắt buộc, == request.time)
+//
+// 6. Subcollection: trips/{tripId}/memberSecrets/{memberId} (CHỈ admin đọc/ghi/xóa; memberId thuộc trip.memberIds)
+//    - code: string (bắt buộc, 12..32 ký tự [a-z0-9]) - Mã bí mật cá nhân nằm trong link mời riêng của thành viên
+//    - updatedAt: timestamp (bắt buộc, == request.time) - Thời điểm tạo hoặc xoay vòng mã bí mật
+//
+// 7. Subcollection: trips/{tripId}/bindings/{uid} (uid là Firebase Auth UID của khách)
+//    - memberId: string (bắt buộc, thuộc trip.memberIds) - Thành viên được liên kết với phiên khách
+//    - code: string (bắt buộc, 12..32 ký tự [a-z0-9], phải khớp memberSecrets/{memberId}.code) - Mã bí mật chứng minh quyền sở hữu danh tính
+//    - updatedAt: timestamp (bắt buộc, == request.time) - Thời điểm liên kết hoặc cập nhật binding
 //
 // ===============================================================
 
@@ -97,6 +111,51 @@ service cloud.firestore {
     // Kiểm tra document có chính xác tập key cho phép (không thiếu trường bắt buộc, không thừa trường lạ).
     function exactKeys(d, keys) { return d.keys().hasOnly(keys) && d.keys().hasAll(keys); }
 
+    // Trả về đường dẫn document chứa mã bí mật cá nhân của một thành viên trong chuyến đi.
+    function secretPath(tripId, memberId) {
+      return /databases/$(db)/documents/trips/$(tripId)/memberSecrets/$(memberId);
+    }
+
+    // Trả về đường dẫn document liên kết danh tính giữa UID khách và một thành viên trong chuyến đi.
+    function bindingPath(tripId, uid) {
+      return /databases/$(db)/documents/trips/$(tripId)/bindings/$(uid);
+    }
+
+    // Kiểm tra mã bí mật thành viên đúng định dạng 12..32 ký tự chữ thường và số [a-z0-9] để chống đoán mò và giới hạn kích thước.
+    function isValidMemberCode(v) {
+      return v is string && v.matches('^[a-z0-9]{12,32}$');
+    }
+
+    // Đối chiếu mã bí mật của thành viên với document memberSecrets tương ứng để xác thực quyền nhận danh tính.
+    function secretMatches(tripId, memberId, code) {
+      return memberId is string && code is string
+        && exists(secretPath(tripId, memberId))
+        && get(secretPath(tripId, memberId)).data.code == code;
+    }
+
+    // Kiểm tra người gọi hiện tại đã đăng nhập (kể cả ẩn danh) và có binding hợp lệ khớp memberIds lẫn mã bí mật hiện hành của chuyến.
+    function hasValidBinding(tripId) {
+      return request.auth != null
+        && exists(bindingPath(tripId, request.auth.uid))
+        && get(bindingPath(tripId, request.auth.uid)).data.memberId in trip(tripId).memberIds
+        && secretMatches(
+             tripId,
+             get(bindingPath(tripId, request.auth.uid)).data.memberId,
+             get(bindingPath(tripId, request.auth.uid)).data.code
+           );
+    }
+
+    // Lấy memberId gắn với UID khách hiện tại từ document binding sau khi đã xác nhận binding hợp lệ.
+    function myMemberId(tripId) {
+      return get(bindingPath(tripId, request.auth.uid)).data.memberId;
+    }
+
+    // Đảm bảo một trường tùy chọn giữ nguyên trạng thái (cùng vắng mặt hoặc cùng có mặt với giá trị y hệt) khi cập nhật document.
+    function sameOptField(after, before, key) {
+      return (!(key in before) && !(key in after))
+        || ((key in before) && (key in after) && after[key] == before[key]);
+    }
+
     // ---------- validators ----------
 
     // Kiểm tra toàn bộ schema của document chuyến đi (trips) cho cả thao tác tạo và cập nhật bởi admin.
@@ -114,10 +173,13 @@ service cloud.firestore {
         && d.updatedAt == request.time;
     }
 
-    // Kiểm tra schema khoản chi (expenses) và đối chiếu người ứng/tham gia/số cố định với thành viên chuyến đi.
+    // Kiểm tra schema khoản chi (expenses), đối chiếu thành viên chuyến đi và giới hạn kích thước các trường tùy chọn định danh khách.
     function validExpense(d, t) {
-      return exactKeys(d, ['name','amount','payerId','participantIds','fixedAmounts',
-                           'note','date','createdBy','createdAt','updatedAt'])
+      return d.keys().hasOnly(['name','amount','payerId','participantIds','fixedAmounts',
+                               'note','date','createdBy','createdByUid','createdByMemberId',
+                               'createdAt','updatedAt'])
+        && d.keys().hasAll(['name','amount','payerId','participantIds','fixedAmounts',
+                            'note','date','createdBy','createdAt','updatedAt'])
         && isText(d.name, 100)
         && isMoney(d.amount)
         && d.payerId in t.memberIds
@@ -128,16 +190,22 @@ service cloud.firestore {
         && d.fixedAmounts.keys().hasOnly(d.participantIds)
         && isOptText(d.note, 200)
         && isDate(d.date)
+        && (!('createdByUid' in d) || isText(d.createdByUid, 128))
+        && (!('createdByMemberId' in d) || d.createdByMemberId in t.memberIds)
         && d.updatedAt == request.time;
       // Rules không lặp được giá trị trong map → kiểm từng fixed & tổng fixed ≤ amount ở client (computeShares).
     }
 
-    // Kiểm tra schema bản ghi thanh toán (payments): người trả/nhận thuộc chuyến, khác nhau, tiền nguyên VND và giờ server.
+    // Kiểm tra schema bản ghi thanh toán (payments): người trả/nhận thuộc chuyến, khác nhau, tiền nguyên VND, giờ server và trường định danh khách nếu có.
     function validPayment(d, t) {
-      return exactKeys(d, ['fromId','toId','amount','note','markedBy','paidAt'])
+      return d.keys().hasOnly(['fromId','toId','amount','note','markedBy',
+                               'createdByUid','createdByMemberId','paidAt'])
+        && d.keys().hasAll(['fromId','toId','amount','note','markedBy','paidAt'])
         && d.fromId in t.memberIds && d.toId in t.memberIds && d.fromId != d.toId
         && isMoney(d.amount)
         && isOptText(d.note, 120)
+        && (!('createdByUid' in d) || isText(d.createdByUid, 128))
+        && (!('createdByMemberId' in d) || d.createdByMemberId in t.memberIds)
         && d.paidAt == request.time;
     }
 
@@ -189,45 +257,78 @@ service cloud.firestore {
         // Bất kỳ ai có tripId của chuyến đang tồn tại đều đọc được danh sách chi tiêu của chuyến đó.
         allow read: if tripExists(tripId);
 
-        // Cho phép tạo khoản chi hợp lệ khi chuyến tồn tại: admin ghi createdBy='admin', hoặc khách ghi createdBy='guest' khi chuyến chưa khóa và cho phép khách nhập.
+        // Cho phép tạo khoản chi hợp lệ khi chuyến tồn tại: admin ghi createdBy='admin' (không gắn UID/memberId khách), hoặc khách có binding hợp lệ ghi createdBy='guest' kèm đúng UID và memberId của mình khi chuyến mở và cho phép khách nhập.
         allow create: if tripExists(tripId)
           && validExpense(request.resource.data, trip(tripId))
           && request.resource.data.createdAt == request.time
-          && ( (isAdmin() && request.resource.data.createdBy == 'admin')
+          && ( (isAdmin()
+                && request.resource.data.createdBy == 'admin'
+                && !('createdByUid' in request.resource.data)
+                && !('createdByMemberId' in request.resource.data))
             || (trip(tripId).allowGuestExpenses && !trip(tripId).locked
-                && request.resource.data.createdBy == 'guest') );
+                && hasValidBinding(tripId)
+                && request.resource.data.createdBy == 'guest'
+                && 'createdByUid' in request.resource.data
+                && request.resource.data.createdByUid == request.auth.uid
+                && 'createdByMemberId' in request.resource.data
+                && request.resource.data.createdByMemberId == myMemberId(tripId)) );
 
-        // Cho phép cập nhật khoản chi hợp lệ mà không đổi createdAt/createdBy: admin sửa mọi khoản, khách chỉ sửa khoản do khách tạo khi chuyến mở và cho phép nhập.
+        // Cho phép cập nhật khoản chi hợp lệ mà không đổi createdAt/createdBy/createdByUid/createdByMemberId: admin sửa mọi khoản, khách chỉ sửa khoản do chính thành viên mình tạo khi chuyến mở, cho phép nhập và binding còn hiệu lực.
         allow update: if tripExists(tripId)
           && validExpense(request.resource.data, trip(tripId))
           && request.resource.data.createdAt == resource.data.createdAt
           && request.resource.data.createdBy == resource.data.createdBy
+          && sameOptField(request.resource.data, resource.data, 'createdByUid')
+          && sameOptField(request.resource.data, resource.data, 'createdByMemberId')
           && ( isAdmin()
             || (trip(tripId).allowGuestExpenses && !trip(tripId).locked
-                && resource.data.createdBy == 'guest') );
+                && hasValidBinding(tripId)
+                && resource.data.createdBy == 'guest'
+                && 'createdByMemberId' in resource.data
+                && resource.data.createdByMemberId == myMemberId(tripId)) );
 
-        // Admin được xóa mọi khoản chi; khách chỉ được xóa khoản createdBy=='guest' khi chuyến tồn tại, chưa khóa và đang bật cho phép khách nhập.
+        // Admin được xóa mọi khoản chi; khách chỉ được xóa khoản createdBy=='guest' thuộc đúng memberId của mình khi chuyến tồn tại, chưa khóa, đang cho phép nhập và binding hợp lệ.
         allow delete: if isAdmin()
-          || (tripExists(tripId) && trip(tripId).allowGuestExpenses && !trip(tripId).locked
-              && resource.data.createdBy == 'guest');
+          || (tripExists(tripId)
+              && trip(tripId).allowGuestExpenses && !trip(tripId).locked
+              && hasValidBinding(tripId)
+              && resource.data.createdBy == 'guest'
+              && 'createdByMemberId' in resource.data
+              && resource.data.createdByMemberId == myMemberId(tripId));
       }
 
       match /payments/{paymentId} {
         // Bất kỳ ai có tripId của chuyến đang tồn tại đều đọc được lịch sử thanh toán của chuyến đó.
         allow read: if tripExists(tripId);
 
-        // Cho phép ghi nhận thanh toán hợp lệ khi chuyến tồn tại: admin ghi markedBy='admin', hoặc khách ghi markedBy='guest' khi chuyến chưa khóa.
+        // Cho phép ghi nhận thanh toán hợp lệ khi chuyến tồn tại: admin ghi markedBy='admin' (không gắn UID/memberId khách), hoặc khách có binding hợp lệ ghi markedBy='guest' cho giao dịch liên quan tới chính memberId của mình khi chuyến chưa khóa.
         allow create: if tripExists(tripId)
           && validPayment(request.resource.data, trip(tripId))
-          && ( (isAdmin() && request.resource.data.markedBy == 'admin')
-            || (!trip(tripId).locked && request.resource.data.markedBy == 'guest') );
+          && ( (isAdmin()
+                && request.resource.data.markedBy == 'admin'
+                && !('createdByUid' in request.resource.data)
+                && !('createdByMemberId' in request.resource.data))
+            || (!trip(tripId).locked
+                && hasValidBinding(tripId)
+                && request.resource.data.markedBy == 'guest'
+                && 'createdByUid' in request.resource.data
+                && request.resource.data.createdByUid == request.auth.uid
+                && 'createdByMemberId' in request.resource.data
+                && request.resource.data.createdByMemberId == myMemberId(tripId)
+                && (myMemberId(tripId) == request.resource.data.fromId
+                    || myMemberId(tripId) == request.resource.data.toId)) );
 
         // Cấm hoàn toàn cập nhật bản ghi thanh toán để giữ tính toàn vẹn sổ cái (muốn sửa phải xóa rồi tạo lại).
         allow update: if false;   // muốn sửa thì xóa rồi tạo lại
 
-        // Admin được xóa mọi bản ghi thanh toán; khách chỉ được hoàn tác bản ghi markedBy=='guest' khi chuyến tồn tại và chưa khóa.
+        // Admin được xóa mọi bản ghi thanh toán; khách chỉ được hoàn tác bản ghi markedBy=='guest' thuộc đúng memberId của mình khi chuyến tồn tại, chưa khóa và binding hợp lệ.
         allow delete: if isAdmin()
-          || (tripExists(tripId) && !trip(tripId).locked && resource.data.markedBy == 'guest');
+          || (tripExists(tripId)
+              && !trip(tripId).locked
+              && hasValidBinding(tripId)
+              && resource.data.markedBy == 'guest'
+              && 'createdByMemberId' in resource.data
+              && resource.data.createdByMemberId == myMemberId(tripId));
       }
 
       match /memberQrs/{memberId} {
@@ -241,6 +342,43 @@ service cloud.firestore {
           && request.resource.data.updatedAt == request.time;
         // Chỉ admin được xóa ảnh QR MoMo của thành viên.
         allow delete: if isAdmin();
+      }
+
+      match /memberSecrets/{memberId} {
+        // Chỉ admin được đọc hoặc xóa mã bí mật của thành viên để tránh lộ link mời riêng sang khách khác.
+        allow read, delete: if isAdmin();
+        // Chỉ admin được tạo hoặc xoay vòng mã bí mật [a-z0-9]{12,32} cho thành viên nằm trong memberIds sau khi ghi (hỗ trợ writeBatch cùng trips).
+        allow create, update: if isAdmin()
+          && existsAfter(tripPath(tripId))
+          && memberId in getAfter(tripPath(tripId)).data.memberIds
+          && exactKeys(request.resource.data, ['code', 'updatedAt'])
+          && isValidMemberCode(request.resource.data.code)
+          && request.resource.data.updatedAt == request.time;
+      }
+
+      match /bindings/{uid} {
+        // Admin hoặc chính chủ UID được đọc trạng thái binding của mình (cho phép get khi doc chưa tồn tại hoặc khi memberId và code còn khớp memberSecrets hiện hành).
+        allow get: if isAdmin()
+          || (request.auth != null
+              && request.auth.uid == uid
+              && (resource == null
+                  || (tripExists(tripId)
+                      && resource.data.memberId in trip(tripId).memberIds
+                      && secretMatches(tripId, resource.data.memberId, resource.data.code))));
+        // Chỉ admin được liệt kê danh sách binding của chuyến đi để tránh khách dò UID hoặc danh tính đã liên kết của người khác.
+        allow list: if isAdmin();
+        // Chỉ khách (không phải admin) đã đăng nhập đúng UID mới được tự tạo hoặc cập nhật binding cho mình khi cung cấp đúng memberId thuộc chuyến và code khớp memberSecrets.
+        allow create, update: if !isAdmin()
+          && request.auth != null
+          && request.auth.uid == uid
+          && tripExists(tripId)
+          && exactKeys(request.resource.data, ['memberId', 'code', 'updatedAt'])
+          && request.resource.data.memberId in trip(tripId).memberIds
+          && isValidMemberCode(request.resource.data.code)
+          && secretMatches(tripId, request.resource.data.memberId, request.resource.data.code)
+          && request.resource.data.updatedAt == request.time;
+        // Admin hoặc chính chủ UID được xóa binding (cho phép khách tự hủy liên kết khi đổi người hoặc thu hồi phiên).
+        allow delete: if isAdmin() || (request.auth != null && request.auth.uid == uid);
       }
     }
 
