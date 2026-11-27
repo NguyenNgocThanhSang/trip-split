@@ -64,7 +64,7 @@ service cloud.firestore {
 
     // Kiểm tra người gửi request có phải admin duy nhất (so UID cố định qua Firebase Auth) để cấp toàn quyền quản trị.
     function isAdmin() {
-      return request.auth != null && request.auth.uid == 'REPLACE_WITH_ADMIN_UID';
+      return request.auth != null && request.auth.uid == 'BdmGrQUlwkdSxvcPNpNG1qIdKCk1';
     }
 
     // Trả về đường dẫn document chuyến đi dùng chung cho exists() và get() trong các subcollection.
