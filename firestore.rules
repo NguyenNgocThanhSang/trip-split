@@ -41,7 +41,7 @@
 //    - date: string (bắt buộc, YYYY-MM-DD) - Ngày chi tiêu
 //    - createdBy: string (bắt buộc, 'admin' | 'guest', bất biến) - Nguồn tạo khoản chi
 //    - createdByUid: string (tùy chọn, 1..128 ký tự, bất biến; bắt buộc == request.auth.uid khi createdBy == 'guest', cấm có khi 'admin') - Auth UID của khách tạo khoản chi
-//    - createdByMemberId: string (tùy chọn, thuộc trip.memberIds, bất biến; bắt buộc == binding.memberId khi createdBy == 'guest', cấm có khi 'admin') - ID thành viên gắn với khách tạo khoản chi
+//    - createdByMemberId: string (tùy chọn, 1..64 ký tự, thuộc trip.memberIds lúc tạo, bất biến; bắt buộc == binding.memberId khi createdBy == 'guest', cấm có khi 'admin') - ID thành viên gắn với khách tạo khoản chi
 //    - createdAt: timestamp (bắt buộc, == request.time khi tạo, bất biến khi cập nhật)
 //    - updatedAt: timestamp (bắt buộc, == request.time)
 //
@@ -52,7 +52,7 @@
 //    - note: string (bắt buộc, 0..120 ký tự) - Ghi chú thanh toán
 //    - markedBy: string (bắt buộc, 'admin' | 'guest') - Nguồn ghi nhận thanh toán
 //    - createdByUid: string (tùy chọn, 1..128 ký tự; bắt buộc == request.auth.uid khi markedBy == 'guest', cấm có khi 'admin') - Auth UID của khách ghi nhận thanh toán
-//    - createdByMemberId: string (tùy chọn, thuộc trip.memberIds; bắt buộc == binding.memberId và thuộc {fromId, toId} khi markedBy == 'guest', cấm có khi 'admin') - ID thành viên của khách ghi nhận
+//    - createdByMemberId: string (tùy chọn, 1..64 ký tự, thuộc trip.memberIds lúc tạo; bắt buộc == binding.memberId và thuộc {fromId, toId} khi markedBy == 'guest', cấm có khi 'admin') - ID thành viên của khách ghi nhận
 //    - paidAt: timestamp (bắt buộc, == request.time) - Thời điểm ghi nhận thanh toán
 //
 // 5. Subcollection: trips/{tripId}/memberQrs/{memberId} (memberId thuộc trip.memberIds)
@@ -191,7 +191,7 @@ service cloud.firestore {
         && isOptText(d.note, 200)
         && isDate(d.date)
         && (!('createdByUid' in d) || isText(d.createdByUid, 128))
-        && (!('createdByMemberId' in d) || d.createdByMemberId in t.memberIds)
+        && (!('createdByMemberId' in d) || isText(d.createdByMemberId, 64))
         && d.updatedAt == request.time;
       // Rules không lặp được giá trị trong map → kiểm từng fixed & tổng fixed ≤ amount ở client (computeShares).
     }
@@ -205,7 +205,7 @@ service cloud.firestore {
         && isMoney(d.amount)
         && isOptText(d.note, 120)
         && (!('createdByUid' in d) || isText(d.createdByUid, 128))
-        && (!('createdByMemberId' in d) || d.createdByMemberId in t.memberIds)
+        && (!('createdByMemberId' in d) || isText(d.createdByMemberId, 64))
         && d.paidAt == request.time;
     }
 
