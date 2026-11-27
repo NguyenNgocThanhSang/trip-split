@@ -143,6 +143,10 @@ export function MemberLinksSection({
 
   return (
     <div className="flex flex-col gap-3">
+      <p className="text-xs text-muted-foreground">
+        Lỡ gửi link cá nhân/nhắc nợ riêng vào nhóm? Bấm Tạo lại mã cho người đó.
+      </p>
+
       {missingMembers.length > 0 && (
         <Alert>
           <KeyRound />

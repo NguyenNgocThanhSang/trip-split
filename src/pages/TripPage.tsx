@@ -197,6 +197,7 @@ function TripLoadedView({
   const [searchParams, setSearchParams] = useSearchParams()
   const { me, setMe, clear } = useMe(trip.id, trip.memberIds)
   const binding = useMemberBinding(trip.id, isAdmin)
+  const { bindWithKey, markInvalidLink } = binding
   const secretsState = useMemberSecrets(trip.id, isAdmin)
 
   const [whoAmIOpen, setWhoAmIOpen] = useState(false)
@@ -205,6 +206,14 @@ function TripLoadedView({
   const [openedWithPayParam] = useState(() => Boolean(searchParams.get('pay')))
   const [payLinkHandled, setPayLinkHandled] = useState(false)
   const handledKeyRef = useRef<string | null>(null)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const [expenseModalOpen, setExpenseModalOpen] = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
@@ -252,15 +261,15 @@ function TripLoadedView({
 
     const parsed = parseMemberKeyParam(rawKeyParam)
     if (!parsed || !trip.memberIds.includes(parsed.memberId)) {
-      binding.markInvalidLink()
+      markInvalidLink()
       toast.error('Link cá nhân không hợp lệ')
       removeKeyParam()
       return
     }
 
-    let cancelled = false
-    void binding.bindWithKey(parsed.memberId, parsed.code).then((result) => {
-      if (cancelled) {
+    // Dùng mountedRef (chỉ false khi unmount) thay vì cleanup theo deps để re-render khi signInAnonymously không nuốt mất kết quả bindWithKey
+    void bindWithKey(parsed.memberId, parsed.code).then((result) => {
+      if (!mountedRef.current) {
         return
       }
       if (result === 'bound') {
@@ -277,11 +286,7 @@ function TripLoadedView({
         toast.error('Không thể xác minh link cá nhân lúc này. Kiểm tra mạng rồi thử lại.')
       }
     })
-
-    return () => {
-      cancelled = true
-    }
-  }, [authReady, rawKeyParam, isAdmin, trip.memberIds, binding, setMe, memberById, setSearchParams])
+  }, [authReady, rawKeyParam, isAdmin, trip.memberIds, bindWithKey, markInvalidLink, setMe, memberById, setSearchParams])
 
   // Xử lý deep-link `?pay=<from>.<to>` đúng một lần khi trip, expenses và payments đã tải xong
   if (dataReady && !payLinkHandled) {

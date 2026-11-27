@@ -351,6 +351,16 @@ export function useMemberBinding(tripId: string, isAdmin: boolean): MemberBindin
     }
   }
 
+  if (hasInvalidLink) {
+    return {
+      status: 'invalid',
+      boundMemberId: null,
+      uid: anonUid,
+      bindWithKey,
+      markInvalidLink,
+    }
+  }
+
   return {
     status: 'loading',
     boundMemberId: null,
