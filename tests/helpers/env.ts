@@ -84,3 +84,50 @@ export async function seedTrip(
     })
   })
 }
+
+/**
+ * Tạo sẵn mã bí mật cá nhân cho một thành viên trong `trips/{tripId}/memberSecrets/{memberId}` để phục vụ test rules.
+ *
+ * @param env - Môi trường test đang chạy trên Firestore Emulator
+ * @param tripId - Mã chuyến đi
+ * @param memberId - Mã thành viên
+ * @param code - Chuỗi mã bí mật `[a-z0-9]{12,32}`
+ */
+export async function seedMemberSecret(
+  env: RulesTestEnvironment,
+  tripId: string,
+  memberId: string,
+  code: string,
+): Promise<void> {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'trips', tripId, 'memberSecrets', memberId), {
+      code,
+      updatedAt: serverTimestamp(),
+    })
+  })
+}
+
+/**
+ * Tạo sẵn liên kết danh tính `trips/{tripId}/bindings/{uid}` cho một UID khách để phục vụ test rules.
+ *
+ * @param env - Môi trường test đang chạy trên Firestore Emulator
+ * @param tripId - Mã chuyến đi
+ * @param uid - Firebase Auth UID của khách
+ * @param memberId - Mã thành viên tương ứng
+ * @param code - Mã bí mật gắn trong binding
+ */
+export async function seedBinding(
+  env: RulesTestEnvironment,
+  tripId: string,
+  uid: string,
+  memberId: string,
+  code: string,
+): Promise<void> {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'trips', tripId, 'bindings', uid), {
+      memberId,
+      code,
+      updatedAt: serverTimestamp(),
+    })
+  })
+}

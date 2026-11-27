@@ -3,7 +3,7 @@
  * Tính số dư và kế hoạch thanh toán bằng `computeBalances`/`settle`, hỗ trợ xem offline,
  * chọn "Bạn là ai", thêm/sửa/xóa chi tiêu, quét VietQR/MoMo, ghi nhận thanh toán và deep-link `?pay=`.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -21,6 +21,7 @@ import { toast } from 'sonner'
 import { ExpenseForm } from '@/components/ExpenseForm'
 import { ExpenseList } from '@/components/ExpenseList'
 import { MarkPaidSheet } from '@/components/MarkPaidSheet'
+import { MemberLinksSection } from '@/components/MemberLinksSection'
 import { OfflineBanner } from '@/components/OfflineBanner'
 import { PaymentsHistory } from '@/components/PaymentsHistory'
 import { QrSheet } from '@/components/QrSheet'
@@ -28,7 +29,12 @@ import { ReminderActions } from '@/components/ReminderActions'
 import { ResponsiveModal } from '@/components/ResponsiveModal'
 import { SettlementList } from '@/components/SettlementList'
 import { SummaryTable } from '@/components/SummaryTable'
+import { TripAccessBanners } from '@/components/TripAccessBanners'
 import { WhoAmI } from '@/components/WhoAmI'
+import {
+  type WriteAccessNotice,
+  WriteAccessNoticeSheet,
+} from '@/components/WriteAccessNoticeSheet'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -51,6 +57,12 @@ import {
 } from '@/data/expenses'
 import { db } from '@/data/firebase'
 import {
+  generateMissingSecrets,
+  rotateMemberSecret,
+  useMemberBinding,
+  useMemberSecrets,
+} from '@/data/memberAccess'
+import {
   addPayment,
   deletePayment,
   hasPendingWrites,
@@ -62,7 +74,15 @@ import { useMe } from '@/hooks/useMe'
 import { computeBalances } from '@/lib/balances'
 import { formatDateVN } from '@/lib/date'
 import { logError, logInfo, logWarn } from '@/lib/logger'
+import { buildPersonalTripUrl, parseMemberKeyParam } from '@/lib/memberLink'
 import { formatVND } from '@/lib/money'
+import {
+  canEditExpense as checkCanEditExpense,
+  canUndoPayment as checkCanUndoPayment,
+  getAddExpenseBlockReason,
+  getMarkTransferBlockReason,
+  type TripPermissionContext,
+} from '@/lib/permissions'
 import { buildGroupReminder, buildPersonalReminder, parsePayParam } from '@/lib/reminder'
 import { settle } from '@/lib/settle'
 import type { Transfer, VND } from '@/lib/types'
@@ -105,7 +125,7 @@ async function runTripWrite(
     logError(context, error)
     toast.error(
       isPermissionDenied(error)
-        ? 'Chuyến đã khóa hoặc chưa cho phép nhập'
+        ? 'Không có quyền ghi — kiểm tra lại link cá nhân hoặc trạng thái khóa sổ.'
         : messages.fallbackError,
     )
   }
@@ -153,6 +173,7 @@ function formatTripDates(startDate?: string, endDate?: string): string | null {
 function TripLoadedView({
   trip,
   isAdmin,
+  authReady,
   dataReady,
   expenses,
   payments,
@@ -163,6 +184,7 @@ function TripLoadedView({
 }: {
   trip: Trip
   isAdmin: boolean
+  authReady: boolean
   dataReady: boolean
   expenses: Expense[]
   payments: Payment[]
@@ -173,18 +195,32 @@ function TripLoadedView({
 }) {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { me, setMe } = useMe(trip.id, trip.memberIds)
+  const { me, setMe, clear } = useMe(trip.id, trip.memberIds)
+  const binding = useMemberBinding(trip.id, isAdmin)
+  const { bindWithKey, markInvalidLink } = binding
+  const secretsState = useMemberSecrets(trip.id, isAdmin)
 
   const [whoAmIOpen, setWhoAmIOpen] = useState(false)
   const [dismissedWhoAmITripId, setDismissedWhoAmITripId] = useState<string | null>(null)
   // Nếu mở từ deep-link `?pay=` thì không tự bật hộp thoại "Bạn là ai" đè lên luồng thanh toán
   const [openedWithPayParam] = useState(() => Boolean(searchParams.get('pay')))
   const [payLinkHandled, setPayLinkHandled] = useState(false)
+  const handledKeyRef = useRef<string | null>(null)
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   const [expenseModalOpen, setExpenseModalOpen] = useState(false)
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null)
   const [qrTransfer, setQrTransfer] = useState<Transfer | null>(null)
   const [markPaidTransfer, setMarkPaidTransfer] = useState<Transfer | null>(null)
+  const [writeNotice, setWriteNotice] = useState<WriteAccessNotice | null>(null)
+  const [linksModalOpen, setLinksModalOpen] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
   const [isUpdatingTripFlag, setIsUpdatingTripFlag] = useState(false)
 
@@ -193,6 +229,64 @@ function TripLoadedView({
     [trip.members],
   )
   const nameOf = (id: string) => memberById.get(id)?.name ?? id
+
+  // Xác minh link cá nhân `?k=<memberId>.<code>` sau khi Auth sẵn sàng; chỉ xóa `?k=` khi bind xong hoặc mã sai (không chạm `?pay=`)
+  const rawKeyParam = searchParams.get('k')
+  useEffect(() => {
+    if (!authReady || !rawKeyParam) {
+      return
+    }
+    if (handledKeyRef.current === rawKeyParam) {
+      return
+    }
+    handledKeyRef.current = rawKeyParam
+
+    const removeKeyParam = () => {
+      setSearchParams(
+        (prev) => {
+          if (!prev.has('k')) return prev
+          const next = new URLSearchParams(prev)
+          next.delete('k')
+          return next
+        },
+        { replace: true },
+      )
+    }
+
+    if (isAdmin) {
+      toast.info('Bạn đang ở chế độ Admin — mở tab ẩn danh để thử link cá nhân')
+      removeKeyParam()
+      return
+    }
+
+    const parsed = parseMemberKeyParam(rawKeyParam)
+    if (!parsed || !trip.memberIds.includes(parsed.memberId)) {
+      markInvalidLink()
+      toast.error('Link cá nhân không hợp lệ')
+      removeKeyParam()
+      return
+    }
+
+    // Dùng mountedRef (chỉ false khi unmount) thay vì cleanup theo deps để re-render khi signInAnonymously không nuốt mất kết quả bindWithKey
+    void bindWithKey(parsed.memberId, parsed.code).then((result) => {
+      if (!mountedRef.current) {
+        return
+      }
+      if (result === 'bound') {
+        // Mặc định góc nhìn ban đầu trùng với thành viên vừa xác minh (vẫn đổi tự do được qua WhoAmI)
+        setMe(parsed.memberId)
+        toast.success(`Đã xác minh là ${memberById.get(parsed.memberId)?.name ?? parsed.memberId}`)
+        removeKeyParam()
+      } else if (result === 'invalid') {
+        toast.error('Link cá nhân không hợp lệ')
+        removeKeyParam()
+      } else {
+        // Lỗi mạng tạm thời: giữ nguyên ?k= để người dùng tải lại trang là thử bind lại được
+        handledKeyRef.current = null
+        toast.error('Không thể xác minh link cá nhân lúc này. Kiểm tra mạng rồi thử lại.')
+      }
+    })
+  }, [authReady, rawKeyParam, isAdmin, trip.memberIds, bindWithKey, markInvalidLink, setMe, memberById, setSearchParams])
 
   // Xử lý deep-link `?pay=<from>.<to>` đúng một lần khi trip, expenses và payments đã tải xong
   if (dataReady && !payLinkHandled) {
@@ -208,44 +302,66 @@ function TripLoadedView({
     }
   }
 
-  // Xóa tham số `?pay=` khỏi URL sau khi dữ liệu sẵn sàng để tránh tự mở lại QR khi làm mới trang
+  // Xóa tham số `?pay=` khỏi URL sau khi dữ liệu sẵn sàng mà không làm mất `?k=` nếu đang xử lý song song
   useEffect(() => {
     if (!dataReady || !searchParams.has('pay')) {
       return
     }
-    const next = new URLSearchParams(searchParams)
-    next.delete('pay')
-    setSearchParams(next, { replace: true })
+    setSearchParams(
+      (prev) => {
+        if (!prev.has('pay')) return prev
+        const next = new URLSearchParams(prev)
+        next.delete('pay')
+        return next
+      },
+      { replace: true },
+    )
   }, [dataReady, searchParams, setSearchParams])
 
   const meName = me ? memberById.get(me)?.name ?? null : null
+  const boundName = binding.boundMemberId
+    ? memberById.get(binding.boundMemberId)?.name ?? binding.boundMemberId
+    : null
   const myRow = me ? rows.find((r) => r.memberId === me) : undefined
 
-  const canAddExpense = isAdmin || (trip.allowGuestExpenses && !trip.locked)
-  const canMarkPaid = isAdmin || !trip.locked
+  const permCtx: TripPermissionContext = {
+    isAdmin,
+    locked: trip.locked,
+    allowGuestExpenses: trip.allowGuestExpenses,
+    boundMemberId: binding.boundMemberId,
+    bindingStatus: binding.status,
+  }
+  const showAddExpenseButtons = isAdmin || (trip.allowGuestExpenses && !trip.locked)
+  const showMarkPaidButtons = isAdmin || !trip.locked
 
   /**
-   * Kiểm tra người đang xem có quyền sửa/xóa khoản chi hay không.
+   * Kiểm tra người đang xem có quyền sửa/xóa khoản chi hay không qua hàm thuần `permissions.ts`.
    *
    * @param expense - Khoản chi cần kiểm tra
    * @returns `true` nếu được phép sửa hoặc xóa
    */
   function canEditExpense(expense: Expense): boolean {
-    return isAdmin || (canAddExpense && expense.createdBy === 'guest')
+    return checkCanEditExpense(permCtx, expense)
   }
 
   /**
-   * Kiểm tra người đang xem có quyền hoàn tác bản ghi thanh toán hay không (admin xóa hết, khách chỉ xóa khoản `guest` khi chưa khóa).
+   * Kiểm tra người đang xem có quyền hoàn tác bản ghi thanh toán hay không qua hàm thuần `permissions.ts`.
    *
    * @param payment - Bản ghi thanh toán cần kiểm tra
    * @returns `true` nếu được phép hoàn tác
    */
   function canUndoPayment(payment: Payment): boolean {
-    return isAdmin || (!trip.locked && payment.markedBy === 'guest')
+    return checkCanUndoPayment(permCtx, payment)
   }
 
   const showWhoAmIModal =
-    whoAmIOpen || (!openedWithPayParam && me === null && dismissedWhoAmITripId !== trip.id)
+    whoAmIOpen ||
+    (!openedWithPayParam &&
+      !rawKeyParam &&
+      binding.status !== 'loading' &&
+      binding.status !== 'invalid' &&
+      me === null &&
+      dismissedWhoAmITripId !== trip.id)
 
   const dateLabel = formatTripDates(trip.startDate, trip.endDate)
 
@@ -279,6 +395,7 @@ function TripLoadedView({
 
   /**
    * Tạo và sao chép tin nhắn nhắc nợ riêng kèm deep-link `?pay=` cho một giao dịch trong kế hoạch.
+   * Nếu là Admin đã tải được `memberSecrets` của người nợ thì nhúng luôn link cá nhân `?k=` kèm toast nhắc gửi riêng.
    *
    * @param transfer - Giao dịch cần nhắc nợ
    */
@@ -288,16 +405,24 @@ function TripLoadedView({
     if (!fromMember || !toMember) {
       return
     }
+    const adminSecret = isAdmin ? secretsState.secrets[transfer.fromId] : undefined
+    const tripUrl = adminSecret
+      ? buildPersonalTripUrl(window.location.origin, trip.id, transfer.fromId, adminSecret.code)
+      : `${window.location.origin}/t/${trip.id}`
     const text = buildPersonalReminder({
       tripName: trip.name,
-      tripUrl: `${window.location.origin}/t/${trip.id}`,
+      tripUrl,
       transfer,
       from: fromMember,
       to: toMember,
     })
     try {
       await navigator.clipboard.writeText(text)
-      toast.success('Đã copy tin nhắn nhắc nợ')
+      toast.success(
+        adminSecret
+          ? `Đã copy nhắc nợ riêng — chỉ gửi riêng cho ${fromMember.name}`
+          : 'Đã copy tin nhắn nhắc nợ',
+      )
     } catch (error) {
       logWarn('trip.copyPersonalReminder', 'Không copy được tin nhắn nhắc nợ riêng', {
         tripId: trip.id,
@@ -343,11 +468,40 @@ function TripLoadedView({
   }
 
   /**
-   * Mở form thêm khoản chi mới.
+   * Mở form thêm khoản chi mới nếu đủ quyền, hoặc mở hộp thoại giải thích nếu khách chưa xác minh link cá nhân.
    */
   function handleOpenAddExpense() {
+    const blockReason = getAddExpenseBlockReason(permCtx)
+    if (blockReason) {
+      setWriteNotice({
+        action: 'add-expense',
+        reason: blockReason,
+        boundName,
+      })
+      return
+    }
     setEditingExpense(null)
     setExpenseModalOpen(true)
+  }
+
+  /**
+   * Mở form xác nhận đã chuyển tiền nếu đủ quyền, hoặc mở hộp thoại giải thích nếu chưa bind / không thuộc cặp giao dịch.
+   *
+   * @param transfer - Giao dịch chuyển khoản người dùng vừa bấm "Đã chuyển"
+   */
+  function handleRequestMarkPaid(transfer: Transfer) {
+    const blockReason = getMarkTransferBlockReason(permCtx, transfer)
+    if (blockReason) {
+      setWriteNotice({
+        action: 'mark-paid',
+        reason: blockReason,
+        boundName,
+        fromName: nameOf(transfer.fromId),
+        toName: nameOf(transfer.toId),
+      })
+      return
+    }
+    setMarkPaidTransfer(transfer)
   }
 
   /**
@@ -377,9 +531,16 @@ function TripLoadedView({
         },
       )
     } else {
+      const guestIdentity =
+        !isAdmin && binding.uid && binding.boundMemberId
+          ? { uid: binding.uid, memberId: binding.boundMemberId }
+          : undefined
+      if (!isAdmin && !guestIdentity) {
+        return
+      }
       await runTripWrite(
         'trip.addExpense',
-        addExpense(db, trip.id, values, isAdmin ? 'admin' : 'guest'),
+        addExpense(db, trip.id, values, isAdmin ? 'admin' : 'guest', guestIdentity),
         {
           onlineSuccess: 'Đã thêm khoản chi.',
           offlineQueued: 'Đã lưu tạm khoản chi, sẽ tự đồng bộ khi có mạng.',
@@ -412,6 +573,13 @@ function TripLoadedView({
    */
   async function handleConfirmPayment(amount: VND, note: string) {
     if (!markPaidTransfer) return
+    const guestIdentity =
+      !isAdmin && binding.uid && binding.boundMemberId
+        ? { uid: binding.uid, memberId: binding.boundMemberId }
+        : undefined
+    if (!isAdmin && !guestIdentity) {
+      return
+    }
     await runTripWrite(
       'trip.addPayment',
       addPayment(
@@ -424,6 +592,7 @@ function TripLoadedView({
           note,
         },
         isAdmin ? 'admin' : 'guest',
+        guestIdentity,
       ),
       {
         onlineSuccess: 'Đã ghi nhận thanh toán.',
@@ -505,6 +674,9 @@ function TripLoadedView({
                 <DropdownMenuItem onSelect={() => navigate(`/admin/trips/${trip.id}`)}>
                   Chỉnh sửa chuyến đi
                 </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => setLinksModalOpen(true)}>
+                  Link cá nhân thành viên
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   disabled={isUpdatingTripFlag}
                   onSelect={() =>
@@ -582,6 +754,15 @@ function TripLoadedView({
         </div>
       </header>
 
+      <TripAccessBanners
+        isAdmin={isAdmin}
+        bindingStatus={binding.status}
+        boundMemberId={binding.boundMemberId}
+        boundName={boundName}
+        lensId={me}
+        lensName={meName}
+      />
+
       <Tabs defaultValue="summary" className="flex-1 p-4">
         <TabsList className="grid h-11 w-full grid-cols-2">
           <TabsTrigger value="summary" className="min-h-10">
@@ -633,9 +814,16 @@ function TripLoadedView({
           ) : (
             <Card>
               <CardContent className="flex items-center justify-between gap-3">
-                <p className="text-sm text-muted-foreground">
-                  Chọn tên của bạn để xem riêng số tiền cần trả hoặc nhận lại.
-                </p>
+                <div className="flex flex-col gap-1">
+                  <p className="text-sm text-muted-foreground">
+                    Chọn tên của bạn để xem riêng số tiền cần trả hoặc nhận lại.
+                  </p>
+                  {!isAdmin && binding.status !== 'bound' && (
+                    <p className="text-xs text-muted-foreground">
+                      Mở link cá nhân trưởng nhóm gửi riêng nếu cần xác nhận đã chuyển hoặc thêm chi tiêu.
+                    </p>
+                  )}
+                </div>
                 <Button
                   type="button"
                   variant="outline"
@@ -655,9 +843,9 @@ function TripLoadedView({
               me={me}
               nameOf={nameOf}
               onQr={(t) => setQrTransfer(t)}
-              onPaid={(t) => setMarkPaidTransfer(t)}
+              onPaid={handleRequestMarkPaid}
               onCopyReminder={(t) => void handleCopyPersonalReminder(t)}
-              canMarkPaid={canMarkPaid}
+              canMarkPaid={showMarkPaidButtons}
             />
           </section>
 
@@ -678,7 +866,7 @@ function TripLoadedView({
           <ExpenseList
             expenses={expenses}
             members={trip.members}
-            canAdd={canAddExpense}
+            canAdd={showAddExpenseButtons}
             canEditExpense={canEditExpense}
             onAddClick={handleOpenAddExpense}
             onEdit={handleOpenEditExpense}
@@ -687,7 +875,7 @@ function TripLoadedView({
         </TabsContent>
       </Tabs>
 
-      {canAddExpense && (
+      {showAddExpenseButtons && (
         <Button
           type="button"
           size="icon"
@@ -704,7 +892,9 @@ function TripLoadedView({
         onOpenChange={handleWhoAmIOpenChange}
         members={trip.members}
         currentMe={me}
+        verifiedMemberId={isAdmin ? null : binding.boundMemberId}
         onSelect={setMe}
+        onClear={clear}
       />
 
       <ResponsiveModal
@@ -716,11 +906,13 @@ function TripLoadedView({
           }
         }}
         title={editingExpense ? 'Sửa khoản chi' : 'Thêm khoản chi'}
+        mobileVariant="fullscreen"
       >
         <ExpenseForm
           key={editingExpense?.id ?? 'new-expense'}
           members={trip.members}
           defaultPayerId={me}
+          stickyActions
           initial={
             editingExpense
               ? {
@@ -755,11 +947,11 @@ function TripLoadedView({
           to={qrToMember}
           tripName={trip.name}
           tripId={trip.id}
-          canMarkPaid={canMarkPaid}
+          canMarkPaid={showMarkPaidButtons}
           onPaid={() => {
             const target = qrTransfer
             setQrTransfer(null)
-            setMarkPaidTransfer(target)
+            handleRequestMarkPaid(target)
           }}
         />
       )}
@@ -776,6 +968,50 @@ function TripLoadedView({
           nameOf={nameOf}
           onConfirm={handleConfirmPayment}
         />
+      )}
+
+      <WriteAccessNoticeSheet
+        notice={writeNotice}
+        onOpenChange={(open) => {
+          if (!open) {
+            setWriteNotice(null)
+          }
+        }}
+      />
+
+      {isAdmin && (
+        <ResponsiveModal
+          open={linksModalOpen}
+          onOpenChange={setLinksModalOpen}
+          title="Link cá nhân thành viên"
+        >
+          <div className="flex flex-col gap-3">
+            <p className="text-xs text-muted-foreground">
+              Mỗi người một link riêng để xác nhận đã chuyển hoặc thêm chi tiêu — chỉ gửi riêng từng người.
+            </p>
+            <MemberLinksSection
+              tripId={trip.id}
+              members={trip.members}
+              secretsState={secretsState}
+              onGenerateMissing={async () => {
+                await generateMissingSecrets(
+                  db,
+                  trip.id,
+                  trip.memberIds,
+                  secretsState.secrets,
+                )
+              }}
+              onRotateSecret={async (memberId) => {
+                await rotateMemberSecret(
+                  db,
+                  trip.id,
+                  memberId,
+                  secretsState.secrets[memberId]?.code,
+                )
+              }}
+            />
+          </div>
+        </ResponsiveModal>
       )}
 
       <ResponsiveModal
@@ -893,6 +1129,7 @@ export function TripPage() {
     <TripLoadedView
       trip={tripState.trip}
       isAdmin={adminState.status === 'admin'}
+      authReady={adminState.status !== 'loading'}
       dataReady={dataReady}
       expenses={expensesState.expenses}
       payments={paymentsState.payments}

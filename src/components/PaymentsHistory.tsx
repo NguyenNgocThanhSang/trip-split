@@ -50,6 +50,27 @@ function formatPaidAt(paidAt: Payment['paidAt']): string {
 }
 
 /**
+ * Định dạng nhãn người đã ghi nhận thanh toán để hai bên đối chiếu trên lịch sử.
+ * Nếu chính người trả (`fromId`) ghi nhận thì thêm nhãn phụ `"tự ghi"` để người nhận kiểm tra lại dễ hơn.
+ *
+ * @param payment - Bản ghi thanh toán trong sổ cái
+ * @param nameOf - Hàm ánh xạ `memberId` sang tên hiển thị
+ * @returns Nhãn người ghi tiếng Việt
+ */
+function formatRecorderLabel(payment: Payment, nameOf: (id: string) => string): string {
+  if (payment.markedBy === 'admin') {
+    return 'Trưởng nhóm ghi'
+  }
+  if (payment.createdByMemberId) {
+    const recorderName = nameOf(payment.createdByMemberId)
+    return payment.createdByMemberId === payment.fromId
+      ? `${recorderName} tự ghi`
+      : `${recorderName} ghi`
+  }
+  return 'Thành viên ghi'
+}
+
+/**
  * Hiển thị lịch sử các giao dịch đã chuyển tiền và hộp thoại xác nhận hoàn tác.
  * Trả `null` nếu chuyến đi chưa có thanh toán nào.
  *
@@ -88,6 +109,7 @@ export function PaymentsHistory({ payments, nameOf, canUndo, onUndo }: PaymentsH
         {payments.map((payment) => {
           const fromName = nameOf(payment.fromId)
           const toName = nameOf(payment.toId)
+          const recorderLabel = formatRecorderLabel(payment, nameOf)
 
           return (
             <li key={payment.id}>
@@ -105,6 +127,8 @@ export function PaymentsHistory({ payments, nameOf, canUndo, onUndo }: PaymentsH
                       </span>
                       {' · '}
                       {formatPaidAt(payment.paidAt)}
+                      {' · '}
+                      {recorderLabel}
                     </p>
                     {payment.note && (
                       <p className="text-xs text-muted-foreground">{payment.note}</p>

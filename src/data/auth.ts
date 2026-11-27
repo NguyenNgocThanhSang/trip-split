@@ -1,11 +1,12 @@
 /**
- * Lớp xác thực quản trị viên dùng Firebase Auth (Google Sign-In bằng popup).
- * Chứa hàm thuần `adminStateFor`, hook `useAdmin` và các thao tác đăng nhập/đăng xuất.
+ * Lớp xác thực Firebase Auth dùng chung cho Admin (Google Sign-In popup) và khách (Anonymous Auth).
+ * Chứa hàm thuần `adminStateFor`, các hook `useAdmin`/`useAuthUser` và thao tác đăng nhập/đăng xuất.
  */
 import { useEffect, useState } from 'react'
 import {
   GoogleAuthProvider,
   onAuthStateChanged,
+  signInAnonymously,
   signInWithPopup,
   signOut as firebaseSignOut,
 } from 'firebase/auth'
@@ -21,11 +22,11 @@ export type AdminState =
       status: 'loading'
     }
   | {
-      /** Chưa có người dùng nào đăng nhập. */
+      /** Chưa có người dùng Google nào đăng nhập (kể cả khi đang giữ phiên ẩn danh). */
       status: 'signed-out'
     }
   | {
-      /** Đã đăng nhập nhưng UID không khớp với `VITE_ADMIN_UID`. */
+      /** Đã đăng nhập Google nhưng UID không khớp với `VITE_ADMIN_UID`. */
       status: 'not-admin'
       /** Email của tài khoản Google vừa đăng nhập (nếu có) để người dùng nhận biết nhầm tài khoản. */
       email: string | null
@@ -37,19 +38,34 @@ export type AdminState =
       uid: string
     }
 
+/** Trạng thái phiên Firebase Auth hiện tại (bao gồm cả phiên ẩn danh của khách). */
+export type AuthUserState =
+  | {
+      /** Đang chờ Firebase Auth khôi phục phiên từ IndexedDB. */
+      status: 'loading'
+    }
+  | {
+      /** Đã khôi phục xong phiên đăng nhập hiện tại. */
+      status: 'ready'
+      /** Firebase Auth UID nếu có phiên, hoặc `null` nếu chưa đăng nhập. */
+      uid: string | null
+      /** `true` nếu phiên hiện tại là tài khoản ẩn danh của khách. */
+      isAnonymous: boolean
+    }
+
 /**
  * Suy luận trạng thái phân quyền quản trị từ thông tin người dùng hiện tại và UID admin cấu hình.
- * Tách thành hàm thuần để unit test độc lập mà không cần khởi tạo Firebase SDK.
+ * Phiên ẩn danh (`isAnonymous === true`) luôn trả `signed-out` để màn hình `/admin` vẫn hiện nút Google Sign-In.
  *
  * @param user Thông tin tối thiểu của người dùng Firebase Auth, hoặc `null` nếu chưa đăng nhập
  * @param adminUid UID quản trị viên kỳ vọng (thường lấy từ `import.meta.env.VITE_ADMIN_UID`)
  * @returns Trạng thái `AdminState` tương ứng
  */
 export function adminStateFor(
-  user: { uid: string; email: string | null } | null,
+  user: { uid: string; email: string | null; isAnonymous?: boolean } | null,
   adminUid: string,
 ): AdminState {
-  if (user === null) {
+  if (user === null || user.isAnonymous === true) {
     return { status: 'signed-out' }
   }
 
@@ -80,7 +96,9 @@ export function useAdmin(): AdminState {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setState(
         adminStateFor(
-          user ? { uid: user.uid, email: user.email } : null,
+          user
+            ? { uid: user.uid, email: user.email, isAnonymous: user.isAnonymous }
+            : null,
           configuredAdminUid,
         ),
       )
@@ -90,6 +108,44 @@ export function useAdmin(): AdminState {
   }, [])
 
   return state
+}
+
+/**
+ * Hook theo dõi phiên Firebase Auth hiện tại (gồm cả phiên ẩn danh đã lưu trên máy).
+ * Dùng để khôi phục liên kết danh tính khách khi mở lại link chung mà không tự gọi `signInAnonymously`.
+ *
+ * @returns Trạng thái `AuthUserState` hiện tại (`loading` hoặc `ready`)
+ */
+export function useAuthUser(): AuthUserState {
+  const [state, setState] = useState<AuthUserState>({ status: 'loading' })
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      setState({
+        status: 'ready',
+        uid: user ? user.uid : null,
+        isAnonymous: user ? user.isAnonymous : false,
+      })
+    })
+    return unsubscribe
+  }, [])
+
+  return state
+}
+
+/**
+ * Đảm bảo có sẵn một phiên Firebase Auth UID trước khi khách thực hiện bind mã bí mật.
+ * Chờ `authStateReady()` hoàn tất trước để không ghi đè phiên đăng nhập đã có (Admin hoặc phiên ẩn danh cũ).
+ *
+ * @returns Firebase Auth UID hiện có hoặc UID ẩn danh vừa tạo
+ */
+export async function ensureAnonymousAuth(): Promise<string> {
+  await auth.authStateReady()
+  if (auth.currentUser) {
+    return auth.currentUser.uid
+  }
+  const credential = await signInAnonymously(auth)
+  return credential.user.uid
 }
 
 /**

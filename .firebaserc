@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "demo-tripsplit"
-  }
+    "default": "demo-tripsplit",
+    "prod": "trip-split-4da89"
+  },
+  "targets": {},
+  "etags": {}
 }

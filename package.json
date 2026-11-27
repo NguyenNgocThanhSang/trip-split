@@ -8,6 +8,7 @@
     "emulators": "firebase emulators:start --project demo-tripsplit",
     "test": "vitest run",
     "test:rules": "firebase emulators:exec --only firestore --project demo-tripsplit \"vitest run --dir tests\"",
+    "deploy:rules": "firebase deploy --only firestore:rules -P prod",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

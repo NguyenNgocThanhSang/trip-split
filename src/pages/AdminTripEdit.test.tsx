@@ -3,15 +3,20 @@
  * Kiểm thử màn hình tạo và chỉnh sửa chuyến đi (`AdminTripEdit`) trên jsdom.
  * Mock các hook và thao tác Firestore để kiểm tra thứ tự thành viên, lọc `memberQrs`, khóa thành viên đang dùng và xóa dây chuyền.
  */
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useExpenses } from '@/data/expenses'
 import { useFriends } from '@/data/friends'
+import {
+  generateMissingSecrets,
+  rotateMemberSecret,
+  useMemberSecrets,
+} from '@/data/memberAccess'
 import { usePayments } from '@/data/payments'
 import { createTrip, deleteTripCascade, updateTrip, useTrip } from '@/data/trips'
-import type { Expense, Friend, Payment, Trip } from '@/data/types'
+import type { Expense, Friend, MemberSecret, Payment, Trip } from '@/data/types'
 import { AdminTripEdit } from './AdminTripEdit'
 
 vi.mock('@/data/firebase', () => ({
@@ -30,6 +35,12 @@ vi.mock('@/data/payments', () => ({
   usePayments: vi.fn(),
 }))
 
+vi.mock('@/data/memberAccess', () => ({
+  useMemberSecrets: vi.fn(),
+  generateMissingSecrets: vi.fn(),
+  rotateMemberSecret: vi.fn(),
+}))
+
 vi.mock('@/data/trips', async () => {
   const actual = await vi.importActual<typeof import('@/data/trips')>('@/data/trips')
   return {
@@ -44,6 +55,9 @@ vi.mock('@/data/trips', async () => {
 const mockUseFriends = vi.mocked(useFriends)
 const mockUseExpenses = vi.mocked(useExpenses)
 const mockUsePayments = vi.mocked(usePayments)
+const mockUseMemberSecrets = vi.mocked(useMemberSecrets)
+const mockGenerateMissingSecrets = vi.mocked(generateMissingSecrets)
+const mockRotateMemberSecret = vi.mocked(rotateMemberSecret)
 const mockUseTrip = vi.mocked(useTrip)
 const mockCreateTrip = vi.mocked(createTrip)
 const mockUpdateTrip = vi.mocked(updateTrip)
@@ -147,6 +161,9 @@ beforeEach(() => {
   mockUseExpenses.mockReturnValue({ status: 'ok', expenses: [] })
   mockUsePayments.mockReturnValue({ status: 'ok', payments: [] })
   mockUseTrip.mockReturnValue({ status: 'not-found' })
+  mockUseMemberSecrets.mockReturnValue({ status: 'idle', secrets: {} })
+  mockGenerateMissingSecrets.mockResolvedValue(0)
+  mockRotateMemberSecret.mockResolvedValue('newcode123456')
   mockCreateTrip.mockResolvedValue('newtrip999')
   mockUpdateTrip.mockResolvedValue()
   mockDeleteTripCascade.mockResolvedValue()
@@ -265,8 +282,9 @@ describe('AdminTripEdit', () => {
     await user.click(screen.getByRole('button', { name: 'Lưu' }))
 
     expect(mockUpdateTrip).toHaveBeenCalledTimes(1)
-    const [, tripId, tripInput, qrs] = mockUpdateTrip.mock.calls[0]
+    const [, tripId, tripInput, qrs, previousMemberIds] = mockUpdateTrip.mock.calls[0]
     expect(tripId).toBe('trip123456')
+    expect(previousMemberIds).toEqual(['sang', 'mo', 'chung'])
     const sangMember = tripInput.members.find((m) => m.id === 'sang')
     expect(sangMember).toMatchObject({
       accountNo: '0123456789',
@@ -277,6 +295,58 @@ describe('AdminTripEdit', () => {
       mo: null,
       chung: 'data:image/jpeg;base64,CHUNGQR',
     })
+  })
+
+  it('cho phép copy link cá nhân, tạo mã cho thành viên thiếu và xác nhận tạo lại mã', async () => {
+    const user = userEvent.setup()
+    const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue(undefined)
+    const secrets: Record<string, MemberSecret> = {
+      sang: { id: 'sang', code: 'sangsecret12', updatedAt: ts },
+    }
+    mockUseTrip.mockReturnValue({ status: 'ok', trip: existingTrip })
+    mockUseMemberSecrets.mockReturnValue({ status: 'ok', secrets })
+    mockGenerateMissingSecrets.mockResolvedValue(2)
+
+    render(
+      <MemoryRouter initialEntries={['/admin/trips/trip123456']}>
+        <Routes>
+          <Route path="/admin/trips/:tripId" element={<AdminTripEdit />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    const linksCard = screen
+      .getByRole('heading', { name: 'Link cá nhân từng thành viên' })
+      .closest('[data-slot="card"]') as HTMLElement
+
+    // Tạo mã cho thành viên còn thiếu (Mơ và Chung chưa có mã)
+    await user.click(
+      within(linksCard).getByRole('button', { name: /tạo mã cho thành viên chưa có mã/i }),
+    )
+    expect(mockGenerateMissingSecrets).toHaveBeenCalledWith(
+      expect.anything(),
+      'trip123456',
+      ['sang', 'mo', 'chung'],
+      secrets,
+    )
+
+    // Copy link cá nhân của Sang
+    const sangRow = within(linksCard).getByText('Sang').closest('li')!
+    await user.click(within(sangRow).getByRole('button', { name: /copy link/i }))
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}/t/trip123456?k=sang.sangsecret12`,
+    )
+
+    // Xoay mã của Sang qua AlertDialog xác nhận
+    await user.click(within(sangRow).getByRole('button', { name: /tạo lại mã/i }))
+    const confirmDialog = screen.getByRole('alertdialog')
+    await user.click(within(confirmDialog).getByRole('button', { name: 'Tạo lại mã' }))
+    expect(mockRotateMemberSecret).toHaveBeenCalledWith(
+      expect.anything(),
+      'trip123456',
+      'sang',
+      'sangsecret12',
+    )
   })
 
   it('xóa dây chuyền chuyến đi sau khi xác nhận AlertDialog và quay về danh sách chuyến', async () => {

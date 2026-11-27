@@ -69,6 +69,26 @@ function formatParticipantBadge(
 }
 
 /**
+ * Tạo nhãn người nhập khoản chi để hiển thị trực tiếp trên dòng danh sách và modal chi tiết (tính minh bạch).
+ *
+ * @param expense - Khoản chi cần hiển thị
+ * @param memberNameById - Bản đồ tra nhanh `memberId -> name`
+ * @returns Chuỗi tiếng Việt như `"Trưởng nhóm nhập"`, `"Sang nhập"` hoặc `"Thành viên nhập"`
+ */
+function formatExpenseCreatorLabel(
+  expense: Expense,
+  memberNameById: Map<string, string>,
+): string {
+  if (expense.createdBy === 'admin') {
+    return 'Trưởng nhóm nhập'
+  }
+  if (expense.createdByMemberId) {
+    return `${memberNameById.get(expense.createdByMemberId) ?? expense.createdByMemberId} nhập`
+  }
+  return 'Thành viên nhập'
+}
+
+/**
  * Hiển thị danh sách khoản chi tiêu của chuyến đi và modal chi tiết chia tiền từng người.
  *
  * @param props - Danh sách khoản chi, thành viên, quyền chỉnh sửa và các callback
@@ -144,6 +164,7 @@ export function ExpenseList({
         {expenses.map((expense) => {
           const payerName = memberNameById.get(expense.payerId) ?? expense.payerId
           const badgeLabel = formatParticipantBadge(expense, members, memberNameById)
+          const creatorLabel = formatExpenseCreatorLabel(expense, memberNameById)
 
           return (
             <li key={expense.id}>
@@ -161,7 +182,7 @@ export function ExpenseList({
 
                 <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                   <span>
-                    {payerName} ứng · {formatDateVN(expense.date)}
+                    {payerName} ứng · {formatDateVN(expense.date)} · {creatorLabel}
                   </span>
                   <Badge variant="secondary">{badgeLabel}</Badge>
                 </div>
@@ -219,7 +240,8 @@ export function ExpenseList({
             </div>
 
             <div className="text-xs text-muted-foreground">
-              Ngày chi: {formatDateVN(selectedExpense.date)}
+              Ngày chi: {formatDateVN(selectedExpense.date)} ·{' '}
+              {formatExpenseCreatorLabel(selectedExpense, memberNameById)}
               {selectedExpense.note && (
                 <p className="mt-1 text-sm text-foreground">{selectedExpense.note}</p>
               )}

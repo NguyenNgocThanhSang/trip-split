@@ -95,6 +95,10 @@ export interface ExpenseDoc {
   date: string
   /** Nguồn tạo khoản chi (`'admin'` hoặc `'guest'`, bất biến sau khi tạo). */
   createdBy: 'admin' | 'guest'
+  /** Firebase Auth UID của khách khi tạo bản ghi (chỉ có trên bản ghi khách tạo mới; vắng mặt ở dữ liệu cũ và bản ghi admin). */
+  createdByUid?: string
+  /** Mã thành viên đã xác minh của khách khi tạo bản ghi (dùng kiểm quyền sửa/xóa và hiển thị người nhập). */
+  createdByMemberId?: string
   /** Thời điểm tạo trên máy chủ Firestore (bất biến). */
   createdAt: Timestamp
   /** Thời điểm cập nhật gần nhất trên máy chủ Firestore. */
@@ -119,6 +123,10 @@ export interface PaymentDoc {
   note: string
   /** Nguồn đánh dấu thanh toán (`'admin'` hoặc `'guest'`). */
   markedBy: 'admin' | 'guest'
+  /** Firebase Auth UID của khách khi ghi nhận thanh toán (chỉ có trên bản ghi khách tạo mới; vắng mặt ở dữ liệu cũ và bản ghi admin). */
+  createdByUid?: string
+  /** Mã thành viên đã xác minh của khách khi ghi nhận thanh toán (dùng kiểm quyền hoàn tác và hiển thị người ghi). */
+  createdByMemberId?: string
   /** Thời điểm ghi nhận thanh toán trên máy chủ Firestore. */
   paidAt: Timestamp
 }
@@ -126,6 +134,36 @@ export interface PaymentDoc {
 /** Bản ghi thanh toán kèm mã document `id`. */
 export interface Payment extends PaymentDoc {
   /** Mã định danh document trong subcollection `payments`. */
+  id: string
+}
+
+/** Mã bí mật truy cập cá nhân của từng thành viên trong `trips/{tripId}/memberSecrets/{memberId}` (chỉ Admin đọc/ghi). */
+export interface MemberSecretDoc {
+  /** Mã bí mật ngẫu nhiên từ 12 đến 32 ký tự `[a-z0-9]` dùng trong link cá nhân `?k=<memberId>.<code>`. */
+  code: string
+  /** Thời điểm tạo hoặc tạo lại mã gần nhất trên máy chủ Firestore. */
+  updatedAt: Timestamp
+}
+
+/** Bản ghi mã bí mật kèm `id` (trùng với `memberId`). */
+export interface MemberSecret extends MemberSecretDoc {
+  /** Mã thành viên sở hữu mã bí mật. */
+  id: string
+}
+
+/** Liên kết danh tính ghi giữa Firebase Anonymous UID và `memberId` trong `trips/{tripId}/bindings/{uid}`. */
+export interface MemberBindingDoc {
+  /** Mã thành viên trong `trip.memberIds` được liên kết với `uid` này. */
+  memberId: string
+  /** Mã bí mật dùng để xác minh liên kết; phải khớp với `memberSecrets/{memberId}.code`. */
+  code: string
+  /** Thời điểm liên kết hoặc cập nhật mã gần nhất trên máy chủ Firestore. */
+  updatedAt: Timestamp
+}
+
+/** Bản ghi liên kết danh tính kèm `id` (trùng với Firebase Auth `uid`). */
+export interface MemberBinding extends MemberBindingDoc {
+  /** Firebase Auth UID của thiết bị/phiên trình duyệt đã liên kết. */
   id: string
 }
 

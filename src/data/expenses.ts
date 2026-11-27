@@ -105,6 +105,14 @@ export function useExpenses(tripId: string): ExpensesState {
   return entry.tripId === tripId ? entry.state : { status: 'loading', expenses: [] }
 }
 
+/** Thông tin danh tính ghi của khách đã xác minh qua binding (tùy chọn, không truyền khi là Admin). */
+export interface GuestWriteIdentity {
+  /** Firebase Auth UID của khách khi thực hiện thao tác ghi. */
+  uid: string
+  /** Mã thành viên đã xác minh qua link cá nhân. */
+  memberId: string
+}
+
 /**
  * Thêm một khoản chi mới vào `trips/{tripId}/expenses`.
  *
@@ -112,14 +120,16 @@ export function useExpenses(tripId: string): ExpensesState {
  * @param tripId - Mã chuyến đi
  * @param v - Dữ liệu khoản chi từ form
  * @param by - Vai trò người tạo (`'admin'` hoặc `'guest'`), phải khớp ngữ cảnh auth để qua rules
+ * @param guestIdentity - Danh tính đã xác minh của khách (bắt buộc khi `by === 'guest'` trên rules mới)
  */
 export async function addExpense(
   firestore: Firestore,
   tripId: string,
   v: ExpenseFormValues,
   by: 'admin' | 'guest',
+  guestIdentity?: GuestWriteIdentity,
 ): Promise<void> {
-  await addDoc(collection(firestore, 'trips', tripId, 'expenses'), {
+  const docData: Record<string, unknown> = {
     name: v.name.trim(),
     amount: v.amount,
     payerId: v.payerId,
@@ -130,7 +140,12 @@ export async function addExpense(
     createdBy: by,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
-  })
+  }
+  if (by === 'guest' && guestIdentity) {
+    docData.createdByUid = guestIdentity.uid
+    docData.createdByMemberId = guestIdentity.memberId
+  }
+  await addDoc(collection(firestore, 'trips', tripId, 'expenses'), docData)
 }
 
 /**
