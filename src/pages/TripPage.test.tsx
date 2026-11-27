@@ -3,9 +3,10 @@
  * Kiểm thử trang chuyến đi (`TripPage`) cho deep-link `?pay=`, tách góc nhìn (`useMe`) khỏi danh tính ghi (`useMemberBinding`),
  * các cổng phân quyền qua `WriteAccessNoticeSheet`, `WhoAmI` clear, nhắc nợ `?k=` và minh bạch người ghi/nhập.
  */
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { toast } from 'sonner'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useAdmin } from '@/data/auth'
 import { useExpenses } from '@/data/expenses'
@@ -633,5 +634,63 @@ describe('TripPage', () => {
     expect(screen.getByText('Vietcombank')).toBeInTheDocument()
     expect(screen.getByText('0123456789')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Copy STK' })).toBeInTheDocument()
+  })
+
+  it('xử lý xong ?k= (xóa ?k khỏi URL, setMe và toast) ngay cả khi component re-render và nhận object binding mới trong lúc bindWithKey đang chờ', async () => {
+    const user = userEvent.setup()
+    const toastSuccessSpy = vi.spyOn(toast, 'success')
+    let resolveBind!: (val: 'bound' | 'invalid' | 'error') => void
+    const stableBindWithKey = vi.fn(
+      () =>
+        new Promise<'bound' | 'invalid' | 'error'>((resolve) => {
+          resolveBind = resolve
+        }),
+    )
+    const stableMarkInvalidLink = vi.fn()
+
+    // Giả lập useMemberBinding trả về một object mới mỗi lần render (hành vi thật của hook)
+    mockUseMemberBinding.mockImplementation(() => ({
+      status: 'unbound',
+      boundMemberId: null,
+      uid: null,
+      bindWithKey: stableBindWithKey,
+      markInvalidLink: stableMarkInvalidLink,
+    }))
+
+    function LocationSearchMarker() {
+      const location = useLocation()
+      return <div data-testid="location-search">{location.search}</div>
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/t/trip123456?k=chung.chungcode1234']}>
+        <Routes>
+          <Route
+            path="/t/:tripId"
+            element={
+              <>
+                <TripPage />
+                <LocationSearchMarker />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(stableBindWithKey).toHaveBeenCalledTimes(1)
+    expect(stableBindWithKey).toHaveBeenCalledWith('chung', 'chungcode1234')
+
+    // Kích hoạt re-render trong lúc bindWithKey còn đang pending
+    await user.click(screen.getByRole('tab', { name: /chi tiêu/i }))
+    expect(screen.getByTestId('location-search')).toHaveTextContent('?k=chung.chungcode1234')
+
+    // Hoàn tất bindWithKey -> phải xóa ?k=, lưu localStorage và hiện toast thành công
+    resolveBind('bound')
+    await waitFor(() => {
+      expect(screen.getByTestId('location-search').textContent).toBe('')
+    })
+    expect(window.localStorage.getItem('tripsplit:me:trip123456')).toBe('chung')
+    expect(toastSuccessSpy).toHaveBeenCalledWith('Đã xác minh là Chung')
   })
 })
