@@ -194,4 +194,43 @@ describe('ExpenseForm', () => {
 
     resolveSubmit()
   })
+
+  it('không tự chọn người ứng khi defaultPayerId=null, hiện nhắc "Chọn người đã ứng tiền" và chỉ cho Lưu sau khi chọn', async () => {
+    const user = userEvent.setup()
+    const onSubmit = vi.fn().mockResolvedValue(undefined)
+
+    render(
+      <ExpenseForm
+        members={members}
+        defaultPayerId={null}
+        onSubmit={onSubmit}
+        onCancel={vi.fn()}
+      />,
+    )
+
+    const payerGroup = screen.getByRole('group', { name: /người ứng/i })
+    for (const m of members) {
+      expect(within(payerGroup).getByText(m.name)).toHaveAttribute('data-state', 'off')
+    }
+    expect(screen.getByText('Chọn người đã ứng tiền')).toBeInTheDocument()
+
+    await user.type(screen.getByLabelText(/tên khoản chi/i), 'Gửi xe')
+    await user.type(screen.getByLabelText(/số tiền$/i), '20k')
+    expect(screen.getByRole('button', { name: 'Lưu' })).toBeDisabled()
+
+    await user.click(within(payerGroup).getByText('Chung'))
+    expect(screen.queryByText('Chọn người đã ứng tiền')).not.toBeInTheDocument()
+
+    const saveButton = screen.getByRole('button', { name: 'Lưu' })
+    expect(saveButton).toBeEnabled()
+    await user.click(saveButton)
+
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Gửi xe',
+        amount: 20000,
+        payerId: 'chung',
+      }),
+    )
+  })
 })

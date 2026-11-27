@@ -57,7 +57,8 @@ export function ExpenseForm({
     if (defaultPayerId && memberOrder.includes(defaultPayerId)) {
       return defaultPayerId
     }
-    return memberOrder[0] ?? ''
+    // Không tự gán memberOrder[0] khi chưa có góc nhìn để tránh nhập nhầm người ứng tiền
+    return ''
   })
   const [participantIds, setParticipantIds] = useState<string[]>(() =>
     initial ? initial.participantIds.filter((id) => memberOrder.includes(id)) : memberOrder,
@@ -259,6 +260,9 @@ export function ExpenseForm({
             }
           }}
         />
+        {!payerId && (
+          <p className="text-xs text-destructive">Chọn người đã ứng tiền</p>
+        )}
       </div>
 
       <div
