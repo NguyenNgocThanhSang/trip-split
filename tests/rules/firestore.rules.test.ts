@@ -1,7 +1,6 @@
 /**
  * Bộ kiểm thử tích hợp cho `firestore.rules` chạy trực tiếp trên Firestore Emulator.
- * Bao phủ đầy đủ ma trận phân quyền Khách (xác minh theo `memberSecrets`/`bindings`)/Admin,
- * tương thích dữ liệu cũ và các ràng buộc schema.
+ * Mỗi `describe` kiểm thử một hành vi phân quyền độc lập (Khách theo binding, Admin, tương thích dữ liệu cũ và schema).
  */
 import { assertFails, assertSucceeds, type RulesTestEnvironment } from '@firebase/rules-unit-testing'
 import {
@@ -155,10 +154,16 @@ afterAll(async () => {
 
 describe('Firestore Security Rules', () => {
   describe('1. Quyền đọc và liệt kê trips', () => {
-    it('cho phép khách ẩn danh/chưa đăng nhập get đúng 1 chuyến nhưng chặn list toàn bộ trips; admin list được', async () => {
+    beforeEach(async () => {
       await seedTrip(env, TRIP_ID)
+    })
+
+    it('cho phép khách chưa đăng nhập hoặc ẩn danh get đúng 1 chuyến theo tripId', async () => {
       await assertSucceeds(getDoc(doc(unauthDb(), 'trips', TRIP_ID)))
       await assertSucceeds(getDoc(doc(authDb(UID_UNBOUND), 'trips', TRIP_ID)))
+    })
+
+    it('chặn khách list toàn bộ trips nhưng cho phép admin list', async () => {
       await assertFails(getDocs(collection(unauthDb(), 'trips')))
       await assertFails(getDocs(collection(authDb(UID_UNBOUND), 'trips')))
       await assertSucceeds(getDocs(collection(adminDb(), 'trips')))
@@ -166,11 +171,12 @@ describe('Firestore Security Rules', () => {
   })
 
   describe('2. Bảo vệ dữ liệu chuyến, ảnh QR MoMo và danh bạ bạn bè', () => {
-    it('chặn khách sửa thông tin chuyến, ghi memberQrs và đọc/ghi danh bạ friends', async () => {
+    beforeEach(async () => {
       await seedTrip(env, TRIP_ID, { allowGuestExpenses: true })
       await seedBoundGuest(UID_CHUNG_1, 'chung', CODE_CHUNG)
+    })
 
-      // Chống khách (kể cả đã bind) tráo STK thành viên hoặc tự bật/tắt khóa sổ
+    it('chặn khách đã bind sửa thông tin thành viên, STK hoặc cờ allowGuestExpenses/locked', async () => {
       await assertFails(
         updateDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID), {
           members: [
@@ -193,16 +199,18 @@ describe('Firestore Security Rules', () => {
           updatedAt: serverTimestamp(),
         }),
       )
+    })
 
-      // Chống khách tráo ảnh QR tĩnh
+    it('chặn khách ghi hoặc tráo ảnh QR tĩnh trong memberQrs', async () => {
       await assertFails(
         setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'memberQrs', 'sang'), {
           dataUrl: SAMPLE_QR_DATA_URL,
           updatedAt: serverTimestamp(),
         }),
       )
+    })
 
-      // Chặn hoàn toàn khách và tài khoản Google lạ truy cập danh bạ cá nhân của admin
+    it('chặn khách chưa đăng nhập, khách đã bind và Google UID lạ đọc hoặc ghi danh bạ friends', async () => {
       await assertFails(getDoc(doc(unauthDb(), 'friends', 'sang')))
       await assertFails(getDoc(doc(authDb(UID_CHUNG_1), 'friends', 'sang')))
       await assertFails(
@@ -217,7 +225,7 @@ describe('Firestore Security Rules', () => {
   })
 
   describe('3. Bảo vệ mã bí mật memberSecrets', () => {
-    it('chỉ admin được CRUD memberSecrets (kể cả trong writeBatch tạo chuyến) và chặn toàn bộ khách', async () => {
+    it('cho phép admin tạo nguyên tử trips, memberQrs và memberSecrets trong cùng writeBatch', async () => {
       const admin = adminDb()
       const batch = writeBatch(admin)
       batch.set(doc(admin, 'trips', TRIP_ID), {
@@ -245,8 +253,16 @@ describe('Firestore Security Rules', () => {
         updatedAt: serverTimestamp(),
       })
       await assertSucceeds(batch.commit())
+    })
 
-      // Admin đọc, liệt kê, xoay mã và xóa được
+    it('cho phép admin đọc, list, xoay mã và xóa memberSecrets, đồng thời kiểm tra schema mã bí mật', async () => {
+      await seedTrip(env, TRIP_ID)
+      await assertSucceeds(
+        setDoc(doc(adminDb(), 'trips', TRIP_ID, 'memberSecrets', 'chung'), {
+          code: CODE_CHUNG,
+          updatedAt: serverTimestamp(),
+        }),
+      )
       await assertSucceeds(getDoc(doc(adminDb(), 'trips', TRIP_ID, 'memberSecrets', 'chung')))
       await assertSucceeds(getDocs(collection(adminDb(), 'trips', TRIP_ID, 'memberSecrets')))
       await assertSucceeds(
@@ -256,7 +272,7 @@ describe('Firestore Security Rules', () => {
         }),
       )
 
-      // Kiểm tra schema chặt của memberSecrets
+      // Chặn mã ngắn < 12 ký tự, chữ hoa, thành viên ngoài trip, field lạ hoặc updatedAt giả
       await assertFails(
         setDoc(doc(adminDb(), 'trips', TRIP_ID, 'memberSecrets', 'chung'), {
           code: 'short123',
@@ -289,8 +305,13 @@ describe('Firestore Security Rules', () => {
         }),
       )
 
-      // Seed binding hợp lệ cho Chung để chứng minh khách đã bind vẫn không chạm được memberSecrets
-      await seedBinding(env, TRIP_ID, UID_CHUNG_1, 'chung', CODE_CHUNG_NEW)
+      await assertSucceeds(deleteDoc(doc(adminDb(), 'trips', TRIP_ID, 'memberSecrets', 'chung')))
+    })
+
+    it('chặn hoàn toàn khách chưa đăng nhập và khách đã bind đọc/list/ghi/xóa memberSecrets', async () => {
+      await seedTrip(env, TRIP_ID)
+      await seedMemberSecret(env, TRIP_ID, 'sang', CODE_SANG)
+      await seedBoundGuest(UID_CHUNG_1, 'chung', CODE_CHUNG)
 
       await assertFails(getDoc(doc(unauthDb(), 'trips', TRIP_ID, 'memberSecrets', 'sang')))
       await assertFails(getDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'memberSecrets', 'sang')))
@@ -302,21 +323,50 @@ describe('Firestore Security Rules', () => {
         }),
       )
       await assertFails(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'memberSecrets', 'chung')))
-
-      await assertSucceeds(deleteDoc(doc(adminDb(), 'trips', TRIP_ID, 'memberSecrets', 'sang')))
     })
   })
 
   describe('4. Liên kết danh tính bindings/{uid}', () => {
-    it('cho khách bind đúng mã, re-bind cùng UID khi đổi mã, phát hiện revoked khi get và chặn đọc/ghi trộm', async () => {
+    beforeEach(async () => {
       await seedTrip(env, TRIP_ID)
       await seedMemberSecret(env, TRIP_ID, 'chung', CODE_CHUNG)
       await seedMemberSecret(env, TRIP_ID, 'mo', CODE_MO)
+    })
 
-      // Trước khi bind, khách được phép get bindings/{ownUid} (resource == null) để lắng nghe trạng thái
+    it('cho phép khách get bindings/{ownUid} khi doc chưa tồn tại và chặn unauth get bindings/{uid}', async () => {
+      await assertSucceeds(getDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1)))
+      await assertFails(getDoc(doc(unauthDb(), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1)))
+    })
+
+    it('cho khách bind đúng mã, re-bind cùng UID sau khi đổi mã hoặc chuyển thành viên hợp lệ', async () => {
+      await assertSucceeds(
+        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1), {
+          memberId: 'chung',
+          code: CODE_CHUNG,
+          updatedAt: serverTimestamp(),
+        }),
+      )
       await assertSucceeds(getDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1)))
 
-      // Chặn chưa đăng nhập, sai UID, sai mã, thành viên ngoài chuyến, thiếu/thừa field, fake updatedAt và Admin tự bind
+      // Xoay mã -> re-bind trên cùng UID bằng mã mới hoặc mã của thành viên khác hợp lệ
+      await seedMemberSecret(env, TRIP_ID, 'chung', CODE_CHUNG_NEW)
+      await assertSucceeds(
+        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1), {
+          memberId: 'chung',
+          code: CODE_CHUNG_NEW,
+          updatedAt: serverTimestamp(),
+        }),
+      )
+      await assertSucceeds(
+        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1), {
+          memberId: 'mo',
+          code: CODE_MO,
+          updatedAt: serverTimestamp(),
+        }),
+      )
+    })
+
+    it('chặn bind khi chưa auth, sai UID, sai mã, thành viên ngoài chuyến, trip không tồn tại, thừa field, fake time hoặc Admin tự bind', async () => {
       await assertFails(
         setDoc(doc(unauthDb(), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1), {
           memberId: 'chung',
@@ -346,6 +396,13 @@ describe('Firestore Security Rules', () => {
         }),
       )
       await assertFails(
+        setDoc(doc(authDb(UID_CHUNG_1), 'trips', 'missing123', 'bindings', UID_CHUNG_1), {
+          memberId: 'chung',
+          code: CODE_CHUNG,
+          updatedAt: serverTimestamp(),
+        }),
+      )
+      await assertFails(
         setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1), {
           memberId: 'chung',
           code: CODE_CHUNG,
@@ -367,62 +424,58 @@ describe('Firestore Security Rules', () => {
           updatedAt: serverTimestamp(),
         }),
       )
+    })
 
-      // Bind hợp lệ lần đầu
-      await assertSucceeds(
-        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1), {
-          memberId: 'chung',
-          code: CODE_CHUNG,
-          updatedAt: serverTimestamp(),
-        }),
-      )
-      await assertSucceeds(getDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1)))
-
-      // Khách khác không được get bindings/{uid khác} hoặc list toàn bộ bindings (tránh lộ code)
+    it('chặn khách đọc bindings/{uid khác} hoặc list toàn bộ bindings; cho admin đọc và list', async () => {
+      await seedBinding(env, TRIP_ID, UID_CHUNG_1, 'chung', CODE_CHUNG)
       await assertFails(getDoc(doc(authDb(UID_MO), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1)))
       await assertFails(getDocs(collection(authDb(UID_MO), 'trips', TRIP_ID, 'bindings')))
       await assertSucceeds(getDocs(collection(adminDb(), 'trips', TRIP_ID, 'bindings')))
+    })
 
-      // Admin tạo lại mã cho Chung -> binding cũ lập tức mất hiệu lực ngay cả khi get
+    it('trả permission-denied khi khách get binding đã bị thu hồi mã hoặc đã bị gỡ khỏi trip.memberIds', async () => {
+      await seedBinding(env, TRIP_ID, UID_CHUNG_1, 'chung', CODE_CHUNG)
+
+      // Xoay mã -> binding cũ lập tức bị chặn khi get
       await seedMemberSecret(env, TRIP_ID, 'chung', CODE_CHUNG_NEW)
       await assertFails(getDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1)))
 
-      // Chung mở link mới trên cùng UID -> update (re-bind) thành công với mã mới hoặc đổi sang Mơ với mã Mơ
-      await assertSucceeds(
-        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1), {
-          memberId: 'chung',
-          code: CODE_CHUNG_NEW,
-          updatedAt: serverTimestamp(),
-        }),
-      )
-      await assertSucceeds(
-        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1), {
-          memberId: 'mo',
-          code: CODE_MO,
-          updatedAt: serverTimestamp(),
-        }),
-      )
+      // Khôi phục mã nhưng gỡ Chung khỏi trip.memberIds (trong khi memberSecrets và binding vẫn còn) -> vẫn bị chặn
+      await seedMemberSecret(env, TRIP_ID, 'chung', CODE_CHUNG)
+      await seedTrip(env, TRIP_ID, {
+        members: [
+          { id: 'sang', name: 'Sang', hasStaticQr: false },
+          { id: 'mo', name: 'Mơ', hasStaticQr: false },
+          { id: 'phung', name: 'Phụng', hasStaticQr: false },
+        ],
+        memberIds: ['sang', 'mo', 'phung'],
+      })
+      await assertFails(getDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1)))
+    })
 
-      // Khách tự xóa binding của mình được, Admin xóa binding bất kỳ được
-      await assertSucceeds(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1)))
+    it('cho chính chủ UID và admin xóa binding', async () => {
+      await seedBinding(env, TRIP_ID, UID_CHUNG_1, 'chung', CODE_CHUNG)
       await seedBinding(env, TRIP_ID, UID_MO, 'mo', CODE_MO)
+
+      await assertSucceeds(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'bindings', UID_CHUNG_1)))
       await assertSucceeds(deleteDoc(doc(adminDb(), 'trips', TRIP_ID, 'bindings', UID_MO)))
     })
   })
 
   describe('5. Thêm, sửa và xóa khoản chi (expenses)', () => {
-    it('chỉ cho khách đã bind thêm/sửa/xóa khoản chi của chính thành viên mình khi allowGuestExpenses=true và chưa khóa', async () => {
-      await seedTrip(env, TRIP_ID, { allowGuestExpenses: false, locked: false })
+    beforeEach(async () => {
+      await seedTrip(env, TRIP_ID, { allowGuestExpenses: true, locked: false })
       await seedBoundGuest(UID_CHUNG_1, 'chung', CODE_CHUNG)
       await seedBoundGuest(UID_MO, 'mo', CODE_MO)
+    })
 
-      // allowGuestExpenses = false -> chặn khách đã bind
-      await assertFails(
-        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'e1'), validExpensePayload()),
+    it('cho khách đã bind tạo khoản chi khi allowGuestExpenses=true và chuyến chưa khóa', async () => {
+      await assertSucceeds(
+        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eChung'), validExpensePayload()),
       )
+    })
 
-      // Bật allowGuestExpenses = true -> chặn chưa bind / chưa đăng nhập
-      await seedTrip(env, TRIP_ID, { allowGuestExpenses: true, locked: false })
+    it('chặn khách chưa auth, chưa bind, khi tắt allowGuestExpenses, khi khóa sổ hoặc khi bị thu hồi mã', async () => {
       await assertFails(
         setDoc(doc(unauthDb(), 'trips', TRIP_ID, 'expenses', 'eUnauth'), validExpensePayload()),
       )
@@ -433,12 +486,24 @@ describe('Firestore Security Rules', () => {
         ),
       )
 
-      // Khách đã bind là Chung tạo khoản chi hợp lệ
-      await assertSucceeds(
-        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eChung'), validExpensePayload()),
+      await seedTrip(env, TRIP_ID, { allowGuestExpenses: false, locked: false })
+      await assertFails(
+        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eDisabled'), validExpensePayload()),
       )
 
-      // Chặn giả mạo createdBy='admin', sai/thiếu createdByUid hoặc createdByMemberId, hoặc thành viên ngoài chuyến
+      await seedTrip(env, TRIP_ID, { allowGuestExpenses: true, locked: true })
+      await assertFails(
+        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eLocked'), validExpensePayload()),
+      )
+
+      await seedTrip(env, TRIP_ID, { allowGuestExpenses: true, locked: false })
+      await seedMemberSecret(env, TRIP_ID, 'chung', CODE_CHUNG_NEW)
+      await assertFails(
+        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eRevoked'), validExpensePayload()),
+      )
+    })
+
+    it('chặn khách giả mạo createdBy=admin, thiếu/sai createdByUid hoặc createdByMemberId, hoặc thành viên ngoài chuyến', async () => {
       await assertFails(
         setDoc(
           doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eFakeAdmin'),
@@ -475,10 +540,27 @@ describe('Firestore Security Rules', () => {
           validExpensePayload({ participantIds: ['sang', 'ghost'], fixedAmounts: {} }),
         ),
       )
+    })
 
-      // Seed thêm khoản do Mơ, Admin và khoản legacy không có metadata
+    it('cho khách sửa/xóa khoản chi của chính memberId mình kể cả từ UID khác cùng bind vào thành viên đó', async () => {
+      await env.withSecurityRulesDisabled(async (ctx) => {
+        await setDoc(doc(ctx.firestore(), 'trips', TRIP_ID, 'expenses', 'eChung'), validExpensePayload())
+      })
+      await seedBinding(env, TRIP_ID, UID_CHUNG_2, 'chung', CODE_CHUNG)
+
+      await assertSucceeds(
+        updateDoc(doc(authDb(UID_CHUNG_2), 'trips', TRIP_ID, 'expenses', 'eChung'), {
+          amount: 210000,
+          updatedAt: serverTimestamp(),
+        }),
+      )
+      await assertSucceeds(deleteDoc(doc(authDb(UID_CHUNG_2), 'trips', TRIP_ID, 'expenses', 'eChung')))
+    })
+
+    it('chặn khách sửa/xóa khoản của thành viên khác, của admin, khoản legacy, khi thu hồi mã hoặc đổi trường bất biến', async () => {
       await env.withSecurityRulesDisabled(async (ctx) => {
         const rawDb = ctx.firestore()
+        await setDoc(doc(rawDb, 'trips', TRIP_ID, 'expenses', 'eChung'), validExpensePayload())
         await setDoc(
           doc(rawDb, 'trips', TRIP_ID, 'expenses', 'eMo'),
           validExpensePayload({ createdByUid: UID_MO, createdByMemberId: 'mo' }),
@@ -487,16 +569,6 @@ describe('Firestore Security Rules', () => {
         await setDoc(doc(rawDb, 'trips', TRIP_ID, 'expenses', 'eLegacy'), legacyGuestExpensePayload())
       })
 
-      // Chung đổi sang thiết bị/WebView khác (UID_CHUNG_2 cũng bind vào 'chung') -> vẫn sửa được khoản của Chung
-      await seedBinding(env, TRIP_ID, UID_CHUNG_2, 'chung', CODE_CHUNG)
-      await assertSucceeds(
-        updateDoc(doc(authDb(UID_CHUNG_2), 'trips', TRIP_ID, 'expenses', 'eChung'), {
-          amount: 210000,
-          updatedAt: serverTimestamp(),
-        }),
-      )
-
-      // Chung không được sửa/xóa khoản của Mơ, của Admin, hoặc khoản legacy không có createdByMemberId
       await assertFails(
         updateDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eMo'), {
           amount: 1000,
@@ -519,7 +591,6 @@ describe('Firestore Security Rules', () => {
       )
       await assertFails(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eLegacy')))
 
-      // Không được đổi createdBy, createdByUid, createdByMemberId hoặc createdAt
       await assertFails(
         updateDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eChung'), {
           createdBy: 'admin',
@@ -539,7 +610,96 @@ describe('Firestore Security Rules', () => {
         }),
       )
 
-      // Admin sửa và xóa được cả khoản legacy lẫn khoản khách mới; nhưng không được đổi trường nguồn tạo
+      await seedMemberSecret(env, TRIP_ID, 'chung', CODE_CHUNG_NEW)
+      await assertFails(
+        updateDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eChung'), {
+          amount: 220000,
+          updatedAt: serverTimestamp(),
+        }),
+      )
+      await assertFails(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eChung')))
+    })
+
+    it('chặn thành viên đã bị gỡ khỏi trip.memberIds (dù secret và binding vẫn còn) thao tác trên expenses', async () => {
+      await env.withSecurityRulesDisabled(async (ctx) => {
+        await setDoc(
+          doc(ctx.firestore(), 'trips', TRIP_ID, 'expenses', 'eChung'),
+          validExpensePayload({ payerId: 'sang', participantIds: ['sang', 'mo'], fixedAmounts: {} }),
+        )
+      })
+      // Gỡ 'chung' khỏi trip.memberIds nhưng giữ nguyên memberSecrets/chung và bindings/UID_CHUNG_1
+      await seedTrip(env, TRIP_ID, {
+        allowGuestExpenses: true,
+        locked: false,
+        members: [
+          { id: 'sang', name: 'Sang', hasStaticQr: false },
+          { id: 'mo', name: 'Mơ', hasStaticQr: false },
+          { id: 'phung', name: 'Phụng', hasStaticQr: false },
+        ],
+        memberIds: ['sang', 'mo', 'phung'],
+      })
+
+      await assertFails(
+        setDoc(
+          doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eNew'),
+          validExpensePayload({ payerId: 'sang', participantIds: ['sang', 'mo'], fixedAmounts: {} }),
+        ),
+      )
+      await assertFails(
+        updateDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eChung'), {
+          amount: 250000,
+          updatedAt: serverTimestamp(),
+        }),
+      )
+      await assertFails(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eChung')))
+    })
+
+    it('cho admin sửa khoản chi ngay cả sau khi thành viên tạo khoản đó (không nằm trong payer/participants) đã bị gỡ khỏi trip', async () => {
+      // Chung tạo khoản cho Sang & Mơ (Chung không nằm trong payerId hay participantIds)
+      await assertSucceeds(
+        setDoc(
+          doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eByChung'),
+          validExpensePayload({
+            payerId: 'sang',
+            participantIds: ['sang', 'mo'],
+            fixedAmounts: {},
+          }),
+        ),
+      )
+
+      // Admin gỡ Chung khỏi chuyến
+      await seedTrip(env, TRIP_ID, {
+        allowGuestExpenses: true,
+        locked: false,
+        members: [
+          { id: 'sang', name: 'Sang', hasStaticQr: false },
+          { id: 'mo', name: 'Mơ', hasStaticQr: false },
+          { id: 'phung', name: 'Phụng', hasStaticQr: false },
+        ],
+        memberIds: ['sang', 'mo', 'phung'],
+      })
+
+      // Admin vẫn sửa và xóa được khoản chi giữ nguyên createdByMemberId='chung'
+      await assertSucceeds(
+        updateDoc(doc(adminDb(), 'trips', TRIP_ID, 'expenses', 'eByChung'), {
+          amount: 250000,
+          note: 'Đã chỉnh sau khi gỡ Chung',
+          updatedAt: serverTimestamp(),
+        }),
+      )
+      await assertSucceeds(deleteDoc(doc(adminDb(), 'trips', TRIP_ID, 'expenses', 'eByChung')))
+    })
+
+    it('cho admin tạo khoản admin và sửa/xóa khoản legacy nhưng vẫn khóa bất biến trường tác giả', async () => {
+      await env.withSecurityRulesDisabled(async (ctx) => {
+        const rawDb = ctx.firestore()
+        await setDoc(doc(rawDb, 'trips', TRIP_ID, 'expenses', 'eChung'), validExpensePayload())
+        await setDoc(doc(rawDb, 'trips', TRIP_ID, 'expenses', 'eLegacy'), legacyGuestExpensePayload())
+      })
+
+      await assertSucceeds(
+        setDoc(doc(adminDb(), 'trips', TRIP_ID, 'expenses', 'eByAdmin'), adminExpensePayload()),
+      )
       await assertSucceeds(
         updateDoc(doc(adminDb(), 'trips', TRIP_ID, 'expenses', 'eLegacy'), {
           amount: 150000,
@@ -559,49 +719,17 @@ describe('Firestore Security Rules', () => {
         }),
       )
       await assertSucceeds(deleteDoc(doc(adminDb(), 'trips', TRIP_ID, 'expenses', 'eLegacy')))
-
-      // Sau khi Admin xoay mã Chung -> Chung mất quyền thêm/sửa/xóa ngay
-      await seedMemberSecret(env, TRIP_ID, 'chung', CODE_CHUNG_NEW)
-      await assertFails(
-        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eRevoked'), validExpensePayload()),
-      )
-      await assertFails(
-        updateDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eChung'), {
-          amount: 220000,
-          updatedAt: serverTimestamp(),
-        }),
-      )
-      await assertFails(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eChung')))
-
-      // Khôi phục mã cho Chung, chuyển sang khóa sổ -> khách vẫn bị chặn; mở lại -> Chung xóa được khoản của mình
-      await seedMemberSecret(env, TRIP_ID, 'chung', CODE_CHUNG)
-      await seedTrip(env, TRIP_ID, { allowGuestExpenses: true, locked: true })
-      await assertFails(
-        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'expenses', 'eLocked'), validExpensePayload()),
-      )
-      await seedTrip(env, TRIP_ID, { allowGuestExpenses: true, locked: false })
-      await assertSucceeds(deleteDoc(doc(authDb(UID_CHUNG_2), 'trips', TRIP_ID, 'expenses', 'eChung')))
     })
   })
 
   describe('6. Sổ cái thanh toán (payments)', () => {
-    it('chỉ cho người trả hoặc người nhận đã bind ghi payment, chỉ người ghi hoàn tác được và chặn update hoàn toàn', async () => {
+    beforeEach(async () => {
       await seedTrip(env, TRIP_ID, { locked: false })
       await seedBoundGuest(UID_CHUNG_1, 'chung', CODE_CHUNG)
       await seedBoundGuest(UID_MO, 'mo', CODE_MO)
+    })
 
-      // Khách chưa đăng nhập hoặc chưa bind bị chặn
-      await assertFails(
-        setDoc(doc(unauthDb(), 'trips', TRIP_ID, 'payments', 'pUnauth'), validPaymentPayload()),
-      )
-      await assertFails(
-        setDoc(
-          doc(authDb(UID_UNBOUND), 'trips', TRIP_ID, 'payments', 'pUnbound'),
-          validPaymentPayload({ createdByUid: UID_UNBOUND }),
-        ),
-      )
-
-      // Khách đã bind là Chung: ghi được Chung -> Sang (fromId == Chung) và Sang -> Chung (toId == Chung)
+    it('cho khách đã bind ghi payment khi mình là người trả (fromId) hoặc người nhận (toId)', async () => {
       await assertSucceeds(
         setDoc(
           doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pFromMe'),
@@ -614,20 +742,65 @@ describe('Firestore Security Rules', () => {
           validPaymentPayload({ fromId: 'sang', toId: 'chung' }),
         ),
       )
+    })
 
-      // Chặn Chung ghi payment cho cặp người thứ ba (Mơ -> Phụng)
+    it('chặn khách ghi payment cho cặp người thứ ba, chuyển cho chính mình, hoặc chưa đăng nhập / chưa bind', async () => {
       await assertFails(
         setDoc(
           doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pThirdParty'),
           validPaymentPayload({ fromId: 'mo', toId: 'phung' }),
         ),
       )
-
-      // Chặn chuyển cho chính mình, giả markedBy='admin', hoặc giả mạo createdByUid/createdByMemberId
       await assertFails(
         setDoc(
           doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pSelf'),
           validPaymentPayload({ fromId: 'chung', toId: 'chung' }),
+        ),
+      )
+      await assertFails(
+        setDoc(doc(unauthDb(), 'trips', TRIP_ID, 'payments', 'pUnauth'), validPaymentPayload()),
+      )
+      await assertFails(
+        setDoc(
+          doc(authDb(UID_UNBOUND), 'trips', TRIP_ID, 'payments', 'pUnbound'),
+          validPaymentPayload({ createdByUid: UID_UNBOUND }),
+        ),
+      )
+    })
+
+    it('chặn khách đã bind ghi payment thiếu createdByUid/createdByMemberId, giả mạo tác giả hoặc giả markedBy=admin', async () => {
+      await assertFails(
+        setDoc(
+          doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pMissingMeta'),
+          legacyGuestPaymentPayload(),
+        ),
+      )
+      await assertFails(
+        setDoc(
+          doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pMissingMember'),
+          {
+            fromId: 'chung',
+            toId: 'sang',
+            amount: 50000,
+            note: '',
+            markedBy: 'guest',
+            createdByUid: UID_CHUNG_1,
+            paidAt: serverTimestamp(),
+          },
+        ),
+      )
+      await assertFails(
+        setDoc(
+          doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pMissingUid'),
+          {
+            fromId: 'chung',
+            toId: 'sang',
+            amount: 50000,
+            note: '',
+            markedBy: 'guest',
+            createdByMemberId: 'chung',
+            paidAt: serverTimestamp(),
+          },
         ),
       )
       await assertFails(
@@ -642,10 +815,25 @@ describe('Firestore Security Rules', () => {
           validPaymentPayload({ fromId: 'mo', toId: 'sang', createdByMemberId: 'mo' }),
         ),
       )
+    })
 
-      // Seed payment do Mơ tạo (Mơ -> Chung), do Admin tạo và bản ghi legacy
+    it('cấm update mọi bản ghi payment kể cả với admin', async () => {
+      await env.withSecurityRulesDisabled(async (ctx) => {
+        await setDoc(doc(ctx.firestore(), 'trips', TRIP_ID, 'payments', 'p1'), validPaymentPayload())
+      })
+
+      await assertFails(
+        updateDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'p1'), { amount: 100000 }),
+      )
+      await assertFails(
+        updateDoc(doc(adminDb(), 'trips', TRIP_ID, 'payments', 'p1'), { amount: 100000 }),
+      )
+    })
+
+    it('chỉ cho chính người ghi (kể cả qua UID thứ 2) hoàn tác payment của mình; chặn xóa payment của người khác, admin hoặc legacy', async () => {
       await env.withSecurityRulesDisabled(async (ctx) => {
         const rawDb = ctx.firestore()
+        await setDoc(doc(rawDb, 'trips', TRIP_ID, 'payments', 'pByChung'), validPaymentPayload())
         await setDoc(
           doc(rawDb, 'trips', TRIP_ID, 'payments', 'pByMo'),
           validPaymentPayload({
@@ -659,40 +847,59 @@ describe('Firestore Security Rules', () => {
         await setDoc(doc(rawDb, 'trips', TRIP_ID, 'payments', 'pLegacy'), legacyGuestPaymentPayload())
       })
 
-      // Cấm update payment với cả khách và admin
-      await assertFails(
-        updateDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pFromMe'), { amount: 100000 }),
-      )
-      await assertFails(
-        updateDoc(doc(adminDb(), 'trips', TRIP_ID, 'payments', 'pFromMe'), { amount: 100000 }),
-      )
-
       // Chung không được xóa payment do Mơ ghi (dù Chung là toId), payment Admin, hoặc payment legacy
       await assertFails(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pByMo')))
       await assertFails(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pAdmin')))
       await assertFails(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pLegacy')))
 
-      // Chung đổi sang UID thứ hai cũng bind vào 'chung' -> vẫn hoàn tác được payment do Chung ghi
+      // Chung dùng UID thứ 2 bind vào 'chung' -> vẫn hoàn tác được payment do Chung ghi
       await seedBinding(env, TRIP_ID, UID_CHUNG_2, 'chung', CODE_CHUNG)
-      await assertSucceeds(deleteDoc(doc(authDb(UID_CHUNG_2), 'trips', TRIP_ID, 'payments', 'pFromMe')))
+      await assertSucceeds(deleteDoc(doc(authDb(UID_CHUNG_2), 'trips', TRIP_ID, 'payments', 'pByChung')))
+    })
 
-      // Xoay mã Chung -> mất quyền ghi và hoàn tác ngay
+    it('chặn khách ghi/hoàn tác payment khi bị xoay mã, khi khóa sổ hoặc khi bị gỡ khỏi trip.memberIds', async () => {
+      await env.withSecurityRulesDisabled(async (ctx) => {
+        await setDoc(doc(ctx.firestore(), 'trips', TRIP_ID, 'payments', 'pByChung'), validPaymentPayload())
+      })
+
+      // Xoay mã
       await seedMemberSecret(env, TRIP_ID, 'chung', CODE_CHUNG_NEW)
       await assertFails(
         setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pRevoked'), validPaymentPayload()),
       )
-      await assertFails(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pToMe')))
+      await assertFails(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pByChung')))
 
-      // Khóa sổ -> chặn khách ghi & hoàn tác; Admin vẫn tạo và xóa được mọi payment (kể cả legacy)
+      // Khôi phục mã nhưng khóa sổ -> khách bị chặn, Admin vẫn tạo & xóa được kể cả legacy
       await seedMemberSecret(env, TRIP_ID, 'chung', CODE_CHUNG)
       await seedTrip(env, TRIP_ID, { locked: true })
       await assertFails(
         setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pLocked'), validPaymentPayload()),
       )
-      await assertFails(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pToMe')))
+      await assertFails(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pByChung')))
       await assertSucceeds(
         setDoc(doc(adminDb(), 'trips', TRIP_ID, 'payments', 'pByAdmin'), adminPaymentPayload()),
       )
+
+      // Mở khóa nhưng gỡ Chung khỏi trip.memberIds (trong khi secret + binding vẫn còn) -> vẫn bị chặn
+      await seedTrip(env, TRIP_ID, {
+        locked: false,
+        members: [
+          { id: 'sang', name: 'Sang', hasStaticQr: false },
+          { id: 'mo', name: 'Mơ', hasStaticQr: false },
+          { id: 'phung', name: 'Phụng', hasStaticQr: false },
+        ],
+        memberIds: ['sang', 'mo', 'phung'],
+      })
+      await assertFails(
+        setDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pRemoved'), validPaymentPayload()),
+      )
+      await assertFails(deleteDoc(doc(authDb(UID_CHUNG_1), 'trips', TRIP_ID, 'payments', 'pByChung')))
+    })
+
+    it('cho admin xóa mọi payment kể cả bản ghi legacy không có metadata', async () => {
+      await env.withSecurityRulesDisabled(async (ctx) => {
+        await setDoc(doc(ctx.firestore(), 'trips', TRIP_ID, 'payments', 'pLegacy'), legacyGuestPaymentPayload())
+      })
       await assertSucceeds(deleteDoc(doc(adminDb(), 'trips', TRIP_ID, 'payments', 'pLegacy')))
     })
   })
