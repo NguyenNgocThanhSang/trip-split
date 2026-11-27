@@ -906,11 +906,13 @@ function TripLoadedView({
           }
         }}
         title={editingExpense ? 'Sửa khoản chi' : 'Thêm khoản chi'}
+        mobileVariant="fullscreen"
       >
         <ExpenseForm
           key={editingExpense?.id ?? 'new-expense'}
           members={trip.members}
           defaultPayerId={me}
+          stickyActions
           initial={
             editingExpense
               ? {

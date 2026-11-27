@@ -358,6 +358,7 @@ export function AdminFriends() {
           }
         }}
         title={editingFriend ? `Sửa ${editingFriend.name}` : 'Thêm bạn bè'}
+        mobileVariant="fullscreen"
         footer={
           <>
             <Button

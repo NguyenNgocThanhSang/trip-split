@@ -29,6 +29,8 @@ export interface ExpenseFormProps {
   onSubmit: (values: ExpenseFormValues) => Promise<void>
   /** Callback đóng biểu mẫu khi người dùng bấm Hủy. */
   onCancel: () => void
+  /** Ghim thanh nút Hủy/Lưu ở cạnh dưới vùng cuộn khi dùng trong modal toàn màn hình trên mobile. */
+  stickyActions?: boolean
 }
 
 /**
@@ -43,6 +45,7 @@ export function ExpenseForm({
   initial,
   onSubmit,
   onCancel,
+  stickyActions = false,
 }: ExpenseFormProps) {
   const memberOrder = useMemo(() => members.map((m) => m.id), [members])
   const initialDate = initial?.date ?? todayISO()
@@ -402,7 +405,13 @@ export function ExpenseForm({
         )}
       </div>
 
-      <div className="flex gap-2 pt-1">
+      <div
+        className={
+          stickyActions
+            ? 'sticky bottom-0 -mx-4 -mb-4 mt-2 flex gap-2 border-t bg-background px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]'
+            : 'flex gap-2 pt-1'
+        }
+      >
         <Button
           type="button"
           variant="outline"
