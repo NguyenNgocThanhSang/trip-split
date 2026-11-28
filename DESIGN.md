@@ -19,7 +19,7 @@ Thay Google Sheet chia tiền đi chơi bằng web app mobile-first, **miễn ph
 | D5 | **Trip ID ngẫu nhiên 10 ký tự** làm URL (`/t/k3x9p2qm7a`) + chặn `list` + `noindex` | Link = quyền truy cập; trang hiện STK ngân hàng → không được đoán ra, không bị index. |
 | D6 | **Admin = Firebase Auth Google Sign-In, 1 UID cố định trong rules** | PIN kiểm tra ở frontend thì bypass được. Google Sign-In một chạm, không phải nhớ mật khẩu, tự nhớ phiên. Khách không đăng nhập. |
 | D7 | **Danh bạ bạn bè trong MVP** | QR cần thông tin ngân hàng — nhập lại STK mỗi chuyến rất phiền. |
-| D8 | **Hosting: Cloudflare Pages** (auto deploy từ GitHub) | Free, băng thông không giới hạn, không sleep. **Đã chốt** (chủ dự án muốn tìm hiểu Cloudflare). Firebase chỉ dùng cho Firestore + Auth. |
+| D8 | **Hosting: Cloudflare Workers Static Assets** (auto deploy từ GitHub qua Workers Builds) | Free, băng thông không giới hạn, không sleep. **Đã chốt** (chủ dự án muốn tìm hiểu Cloudflare). Ban đầu chọn Cloudflare Pages; dự án được tạo dưới dạng Worker nên chuyển sang `wrangler.jsonc` (xem `docs/DEPLOY.md`). Firebase chỉ dùng cho Firestore + Auth. |
 | D9 | **Tiền là số nguyên VND** (`int`), không bao giờ dùng float | VND không có đơn vị lẻ; chia phải khớp tổng tuyệt đối. |
 | D10 | **Không dùng Cloud Storage.** Ảnh QR MoMo tĩnh nén client-side ≤ 70 KB, lưu dạng data URL trong Firestore | Cloud Storage for Firebase bắt buộc gói Blaze (đã kiểm tra: firebase.google.com/docs/storage/faqs-storage-changes-announced-sept-2024). |
 | D11 | **Ảnh thẻ tổng kết → giai đoạn 2** | Nút Copy + Web Share đủ cho MVP; chụp DOM có ảnh QR cross-origin dễ lỗi CORS. |
@@ -32,7 +32,7 @@ Thay Google Sheet chia tiền đi chơi bằng web app mobile-first, **miễn ph
 |---|---|---|---|
 | Cloud Firestore | Firebase Spark | 50.000 đọc · 20.000 ghi · 20.000 xóa / ngày; 1 GiB lưu trữ; 10 GiB/tháng tải ra | Bị chặn tới khi reset quota, không phát sinh phí |
 | Firebase Auth | Firebase Spark | Google Sign-In miễn phí (không bật SMS — SMS cần Blaze) | — |
-| Cloudflare Pages | Free | Băng thông & request tĩnh không giới hạn; 500 lượt build/tháng | Build bị chặn tới tháng sau |
+| Cloudflare Workers (Static Assets + Workers Builds) | Free | Request tới file tĩnh miễn phí, không giới hạn; build có hạn mức phút/tháng | Build bị chặn tới tháng sau |
 | `img.vietqr.io` | Miễn phí, không key | Không có SLA | Luôn có fallback copy STK (mục 8) |
 
 **Ước lượng cao điểm** (15 người đang đi chơi, 40 khoản chi/ngày, mỗi người mở app 5 lần/ngày): ~1.500 lượt đọc/ngày (~3% quota, nhờ cache offline), ~100 lượt ghi/ngày (~0,5%), ~150 KB dữ liệu/chuyến kể cả ảnh QR MoMo. Dư hàng chục lần.
@@ -46,7 +46,7 @@ Thay Google Sheet chia tiền đi chơi bằng web app mobile-first, **miễn ph
 ```
   Điện thoại / Desktop (trình duyệt)
   ┌──────────────────────────────────────────┐
-  │ SPA React (Cloudflare Pages, file tĩnh)  │
+  │ SPA React (Cloudflare Workers, file tĩnh)│
   │  ├─ src/lib     logic thuần (test được)  │
   │  ├─ src/data    Firestore hooks          │
   │  └─ src/pages   UI shadcn                │
@@ -75,7 +75,7 @@ Thay Google Sheet chia tiền đi chơi bằng web app mobile-first, **miễn ph
 | Dữ liệu | Firebase JS SDK (modular): `firebase/firestore`, `firebase/auth` |
 | Test | Vitest (logic), `@firebase/rules-unit-testing` + Firestore Emulator (rules) |
 | Local dev | Firebase Emulator Suite (Firestore 8080, Auth 9099, UI 4000) — cần Java 21+ (máy đã có Java 25) |
-| CI/CD | Cloudflare Pages build từ GitHub; rules deploy bằng `firebase deploy --only firestore:rules` |
+| CI/CD | GitHub Actions (`.github/workflows/ci.yml`) kiểm tra mỗi PR — không deploy; Cloudflare Workers Builds build & deploy khi merge `main`; rules deploy tay bằng `npm run deploy:rules`. Chi tiết: `docs/DEPLOY.md` |
 
 Phiên bản: dùng bản mới nhất tại thời điểm scaffold, không chốt số cứng trong tài liệu này.
 
@@ -143,10 +143,10 @@ trip-split/
 │  ├─ App.tsx  main.tsx  index.css
 ├─ tests/rules/firestore.rules.test.ts
 ├─ public/
-│  ├─ _redirects             # "/*  /index.html  200" (SPA fallback cho Cloudflare)
 │  ├─ _headers               # header bảo mật (mục 7.3)
 │  └─ robots.txt             # "User-agent: *" + "Disallow: /"
 ├─ index.html                # có <meta name="robots" content="noindex, nofollow">
+├─ wrangler.jsonc            # Worker: dist/ + not_found_handling SPA (thay _redirects, vốn gây vòng lặp trên Workers)
 ├─ firestore.rules
 ├─ firestore.indexes.json
 ├─ firebase.json             # rules + cấu hình emulator (không có mục hosting)
@@ -405,7 +405,7 @@ Rules này **chưa được chạy thử** — phải qua bộ test ở mục 12
 ### 7.3 Chống lộ link & thông tin ngân hàng
 - Chặn `list` trên `trips`; ID 10 ký tự ngẫu nhiên (~31^10 ≈ 8×10^14 tổ hợp).
 - `<meta name="robots" content="noindex, nofollow">` trong `index.html` + `public/robots.txt` chặn toàn bộ.
-- `public/_headers` (Cloudflare Pages):
+- `public/_headers` (Cloudflare Workers Static Assets dùng cùng định dạng với Pages):
   ```
   /*
     Referrer-Policy: no-referrer
@@ -417,7 +417,7 @@ Rules này **chưa được chạy thử** — phải qua bộ test ở mục 12
 
 ### 7.4 Thiết lập Auth
 1. Authentication → Sign-in method → bật **Google**.
-2. Authentication → Settings → **Authorized domains**: thêm domain Cloudflare Pages (`<project>.pages.dev`, và domain riêng nếu có). Thiếu bước này đăng nhập sẽ lỗi `auth/unauthorized-domain`.
+2. Authentication → Settings → **Authorized domains**: thêm domain Cloudflare Workers (`trip-split.<account>.workers.dev`, domain preview nếu cần đăng nhập admin trên preview, và domain riêng nếu có). Thiếu bước này đăng nhập sẽ lỗi `auth/unauthorized-domain`.
 3. Dùng **`signInWithPopup`**, không dùng `signInWithRedirect`: app không host trên Firebase Hosting nên redirect dễ hỏng trên trình duyệt chặn cookie bên thứ ba (Safari, Chrome mới).
 4. Đăng nhập lần đầu bằng tài khoản Google của chủ dự án → lấy UID trong Authentication → Users → dán vào `REPLACE_WITH_ADMIN_UID` → deploy rules. Người khác có đăng nhập Google được cũng không có quyền gì, vì rules so UID.
 
@@ -587,7 +587,7 @@ VITE_FIREBASE_APP_ID=
 VITE_ADMIN_UID=            # chỉ để UI ẩn/hiện nút admin; quyền thật nằm ở rules
 VITE_USE_EMULATOR=true
 ```
-- Firebase web config **không phải bí mật** (bảo mật nằm ở rules); vẫn để qua env cho gọn. Trên Cloudflare Pages khai báo cùng các biến (không có `VITE_USE_EMULATOR`).
+- Firebase web config **không phải bí mật** (bảo mật nằm ở rules); vẫn để qua env cho gọn. Trên Cloudflare khai báo cùng các biến ở Worker → Settings → **Build** → Variables (biến lúc build, không phải biến runtime); `VITE_USE_EMULATOR` để trống hoặc `false`. Build trên máy dùng `.env.production.local`. `vite build` tự dừng nếu cấu hình trỏ vào emulator/`demo-*` (`scripts/build-env-guard.ts`).
 - Dev không cần project thật: `.firebaserc` dùng project `demo-tripsplit` → emulator không gọi lên cloud.
 - `firebase.json`: `firestore.rules`, `firestore.indexes.json`, emulators `auth:9099`, `firestore:8080`, `ui:4000`.
 
@@ -606,12 +606,12 @@ VITE_USE_EMULATOR=true
 
 ## 11. Thứ tự triển khai
 
-1. **Scaffold**: `git init`; Vite React-TS; Tailwind; `npx shadcn@latest init` + add component ở mục 4; React Router; Vitest; ESLint; `public/_redirects`, `_headers`, `robots.txt`; meta noindex.
+1. **Scaffold**: `git init`; Vite React-TS; Tailwind; `npx shadcn@latest init` + add component ở mục 4; React Router; Vitest; ESLint; `public/_headers`, `robots.txt`; meta noindex. (Bản đầu dùng `public/_redirects`; đã thay bằng `wrangler.jsonc` khi deploy lên Workers.)
 2. **`src/lib` theo TDD**: money → split → balances → settle → vietqr → reminder → id. Xong phần này là lõi đúng.
 3. **Firebase local**: `firebase.json`, `.firebaserc` (demo), `firestore.rules`, test rules với emulator cho tới khi pass hết mục 12.2; `src/data/*`.
 4. **Admin**: đăng nhập Google + guard, danh bạ (kèm nén ảnh QR MoMo), tạo/sửa/xóa chuyến.
 5. **Trang chuyến đi**: WhoAmI, Tổng kết & Thanh toán, Chi tiêu + ExpenseForm, QrSheet + MarkPaidSheet + PaymentsHistory, ReminderActions, `?pay=`, OfflineBanner.
-6. **Lên cloud**: tạo Firebase project thật (Spark), bật Firestore (`asia-southeast1`) + Auth Google; đẩy repo GitHub, nối Cloudflare Pages (`npm run build`, output `dist`, env vars); thêm domain `.pages.dev` vào Authorized domains; đăng nhập lấy UID, dán vào rules, `firebase deploy --only firestore:rules`.
+6. **Lên cloud**: tạo Firebase project thật (Spark), bật Firestore (`asia-southeast1`) + Auth Google; đẩy repo GitHub, nối Cloudflare Workers Builds (`npm run build`, deploy `npx wrangler deploy` theo `wrangler.jsonc`, biến build); thêm domain `.workers.dev` vào Authorized domains; đăng nhập lấy UID, dán vào rules, `firebase deploy --only firestore:rules`.
 7. **Cập nhật `AGENTS.md`** với lệnh build/test thật.
 
 ---

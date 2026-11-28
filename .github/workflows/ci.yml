@@ -1,0 +1,74 @@
+# Kiểm tra tự động cho mọi PR và mọi push lên main (chỉ kiểm tra — KHÔNG deploy).
+# Deploy frontend vẫn do Cloudflare Workers Builds làm khi merge main; rules vẫn deploy tay (docs/DEPLOY.md).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Push mới lên cùng PR thì hủy lượt chạy cũ để tiết kiệm phút chạy
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # Cùng major với máy build Cloudflare (nodejs@24)
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run lint
+
+      - run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          # CI không có cấu hình Firebase thật: build bằng cấu hình giả chỉ để chứng minh code biên dịch được,
+          # nên tắt có chủ đích bước chặn của scripts/build-env-guard.ts. Bản deploy thật do Cloudflare build.
+          SKIP_ENV_GUARD: '1'
+
+  rules:
+    name: Firestore rules tests (emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # Firestore Emulator là file .jar nên cần Java
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # Cache file emulator (~tải mỗi lần nếu không cache)
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ hashFiles('package-lock.json') }}
+
+      - run: npm ci
+
+      # Chạy emulator project giả demo-tripsplit — không cần tài khoản hay secret Firebase
+      - run: npm run test:rules
