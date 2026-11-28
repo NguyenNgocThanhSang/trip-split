@@ -4,17 +4,7 @@ Project rules for coding agents (Antigravity reads this file; Claude Code import
 
 ## Project status
 
-MVP and per-member write identity are implemented (see `DESIGN.md` for full spec). **TripSplit** is a mobile-first web app for splitting group trip expenses among a small circle of friends (~10–15 users, 4–15 people per trip).
-
-Commands (`package.json`):
-- `npm run dev` — Vite dev server
-- `npm run emulators` — Firebase Auth + Firestore Emulators (`demo-tripsplit`)
-- `npm test` — Vitest unit & component tests (`src/**/*.test.{ts,tsx}`)
-- `npm run test:rules` — Firestore rules & data integration tests on Firestore Emulator (`tests/`)
-- `npm run deploy:rules` — Deploy `firestore.rules` to production (`-P prod`)
-- `npm run typecheck` — `tsc --noEmit -p tsconfig.app.json`
-- `npm run lint` — ESLint
-- `npm run build` — `tsc -b && vite build` (output to `dist/`)
+Pre-implementation: no code, build system, or tests yet, and the directory is not a git repo. **TripSplit** is a mobile-first web app for splitting group trip expenses among a small circle of friends (~10–15 users, 4–15 people per trip). Once the stack is scaffolded, update this file with real build/lint/test commands.
 
 Documents:
 - **`DESIGN.md` — the agreed design and the source of truth for implementation** (decisions, data model, security rules, split/settlement logic, screens, build order, tests). Follow it unless the user changes a decision; when a decision changes, update `DESIGN.md` too.
@@ -24,9 +14,9 @@ Documents:
 ## Stack (decided)
 
 - React + Vite + TypeScript + Tailwind CSS + shadcn/ui (lucide-react icons), React Router. Pure static SPA, no backend.
-- Firebase **Spark (free) plan only**: Firestore + Auth (Google Sign-In for Admin + Anonymous Auth for per-member links). **No Cloud Functions, no Cloud Storage** — both require the paid Blaze plan. (Supabase was rejected: its free tier pauses after ~7 days idle.)
-- Hosting: **Cloudflare Workers Static Assets**, auto-deployed from GitHub (`wrangler.jsonc` with `assets.directory = "./dist"` and `assets.not_found_handling = "single-page-application"`, plus `public/_headers` for CSP & security headers).
-- Tests: Vitest for `src/`; `@firebase/rules-unit-testing` on the Firestore Emulator for `firestore.rules` and `tests/data/`.
+- Firebase **Spark (free) plan only**: Firestore + Auth. **No Cloud Functions, no Cloud Storage** — both require the paid Blaze plan. (Supabase was rejected: its free tier pauses after ~7 days idle.)
+- Hosting: **Cloudflare Pages**, auto-deployed from GitHub (`public/_redirects` for SPA fallback, `public/_headers` for security headers).
+- Tests: Vitest for `src/lib`; `@firebase/rules-unit-testing` on the Firestore Emulator for `firestore.rules`.
 
 ## Hard constraints
 
@@ -55,12 +45,9 @@ Every file you write or change must be fully documented. Write comments and docs
 
 ## Access model
 
-- **Admin (single owner)**: Firebase Auth **Google Sign-In**; `firestore.rules` grants admin rights only to one hard-coded UID (`BdmGrQUlwkdSxvcPNpNG1qIdKCk1`). Creates/edits/deletes trips, manages the friend directory and bank accounts, locks trips, toggles per-trip "group can add expenses", and manages/rotates per-member secret codes (`memberSecrets`).
-- **View Lens vs. Write Identity**:
-  - **View lens (`WhoAmI` + `useMe` `localStorage`)**: kept for everyone (guests and Admin) to personalize the balance card, sort transfers, and prefill expense payer; `"Chỉ xem chung (không chọn)"` calls `clear()`.
-  - **Write identity (`bindings/{uid}` via Anonymous Auth + `?k=<memberId>.<code>`)**: required for guests to write. Opening the shared `/t/<10-char tripId>` link without binding is read-only; opening a personal link `?k=<memberId>.<code>` silently signs in anonymously and binds `bindings/{uid}` if `code` matches `memberSecrets/{memberId}.code`.
-  - **Permissions (`src/lib/permissions.ts` + `firestore.rules`)**: bound member `M` can mark payments only where `M ∈ {fromId, toId}`, undo payments where `createdByMemberId == M`, and add/edit/delete expenses where `createdByMemberId == M` (when `allowGuestExpenses && !locked`). Legacy guest records (without `createdByMemberId`) are Admin-only for edits/deletes. Rotating a member's secret code immediately invalidates their binding in `firestore.rules`.
-- **Security rules are the only authorization layer** — every new read/write path needs a rule and a rules test.
+- **Admin (single owner)**: Firebase Auth **Google Sign-In**; `firestore.rules` grants admin rights only to one hard-coded UID. No PIN (a client-side PIN can be bypassed). Creates/edits/deletes trips, manages the friend directory and bank accounts, locks trips, toggles per-trip "group can add expenses".
+- **Guests (no login)**: open a trip via its link `/t/<10-char random id>` (unguessable, because the page shows bank account numbers). Can view expenses, their own summary, the settlement plan, scan QR, and mark "I've paid". Can add expenses only when the admin enabled it, and may only edit/delete expenses and payments created by guests. Guests can never edit trip data (members, bank info) or list trips.
+- The trip ID is effectively the access token, so **security rules are the only authorization layer** — every new read/write path needs a rule and a rules test.
 
 ## Core domain logic
 

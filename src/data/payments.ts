@@ -14,7 +14,6 @@ import {
 import { useEffect, useState } from 'react'
 import { logError } from '@/lib/logger'
 import type { VND } from '@/lib/types'
-import type { GuestWriteIdentity } from './expenses'
 import { db, getHasPendingWrites, setPendingWritesSource } from './firebase'
 import type { Payment, PaymentDoc } from './types'
 
@@ -93,28 +92,21 @@ export function usePayments(tripId: string): PaymentsState {
  * @param tripId - Mã chuyến đi
  * @param p - Thông tin người trả, người nhận, số tiền và ghi chú
  * @param by - Vai trò người đánh dấu (`'admin'` hoặc `'guest'`)
- * @param guestIdentity - Danh tính đã xác minh của khách (bắt buộc khi `by === 'guest'` trên rules mới)
  */
 export async function addPayment(
   firestore: Firestore,
   tripId: string,
   p: PaymentInputData,
   by: 'admin' | 'guest',
-  guestIdentity?: GuestWriteIdentity,
 ): Promise<void> {
-  const docData: Record<string, unknown> = {
+  await addDoc(collection(firestore, 'trips', tripId, 'payments'), {
     fromId: p.fromId,
     toId: p.toId,
     amount: p.amount,
     note: p.note.trim(),
     markedBy: by,
     paidAt: serverTimestamp(),
-  }
-  if (by === 'guest' && guestIdentity) {
-    docData.createdByUid = guestIdentity.uid
-    docData.createdByMemberId = guestIdentity.memberId
-  }
-  await addDoc(collection(firestore, 'trips', tripId, 'payments'), docData)
+  })
 }
 
 /**

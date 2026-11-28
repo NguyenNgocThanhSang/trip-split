@@ -98,39 +98,6 @@ describe('buildPersonalReminder', () => {
     expect(text).toContain('🏦 Vietcombank - 0123456789\n')
     expect(text).not.toContain('()')
   })
-
-  it('không chứa ?k= khi dùng link chung và nối đúng &pay= khi Admin truyền link cá nhân', () => {
-    const groupText = buildGroupReminder({
-      tripName: 'Đà Lạt 2026',
-      tripUrl: 'https://x.workers.dev/t/k3x9p2qm7a',
-      totalSpent: 200000,
-      transfers: [{ fromId: 'chung', toId: 'sang', amount: 100000 }],
-      paid: [],
-      nameOf,
-    })
-    expect(groupText).not.toContain('?k=')
-
-    const guestPersonal = buildPersonalReminder({
-      tripName: 'Đà Lạt 2026',
-      tripUrl: 'https://x.workers.dev/t/k3x9p2qm7a',
-      transfer: { fromId: 'chung', toId: 'sang', amount: 100000 },
-      from: { id: 'chung', name: 'Chung' },
-      to: { id: 'sang', name: 'Sang' },
-    })
-    expect(guestPersonal).not.toContain('?k=')
-    expect(guestPersonal).toContain('https://x.workers.dev/t/k3x9p2qm7a?pay=chung.sang')
-
-    const adminPersonal = buildPersonalReminder({
-      tripName: 'Đà Lạt 2026',
-      tripUrl: 'https://x.workers.dev/t/k3x9p2qm7a?k=chung.chungcode1234',
-      transfer: { fromId: 'chung', toId: 'sang', amount: 100000 },
-      from: { id: 'chung', name: 'Chung' },
-      to: { id: 'sang', name: 'Sang' },
-    })
-    expect(adminPersonal).toContain(
-      'https://x.workers.dev/t/k3x9p2qm7a?k=chung.chungcode1234&pay=chung.sang',
-    )
-  })
 })
 
 describe('buildPayLink & parsePayParam', () => {

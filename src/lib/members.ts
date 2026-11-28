@@ -24,19 +24,14 @@ export function memberInUse(
     if (
       expense.payerId === memberId ||
       expense.participantIds.includes(memberId) ||
-      Object.hasOwn(expense.fixedAmounts, memberId) ||
-      expense.createdByMemberId === memberId
+      Object.hasOwn(expense.fixedAmounts, memberId)
     ) {
       return true
     }
   }
 
   for (const payment of payments) {
-    if (
-      payment.fromId === memberId ||
-      payment.toId === memberId ||
-      payment.createdByMemberId === memberId
-    ) {
+    if (payment.fromId === memberId || payment.toId === memberId) {
       return true
     }
   }

@@ -192,7 +192,7 @@ export function useTripList(): TripListState {
 }
 
 /**
- * Tạo chuyến đi mới cùng ảnh QR MoMo tĩnh và mã bí mật cá nhân `memberSecrets` của các thành viên trong một `writeBatch` nguyên tử.
+ * Tạo chuyến đi mới cùng ảnh QR MoMo tĩnh của các thành viên trong một `writeBatch` nguyên tử.
  *
  * @param firestore - Thực thể Firestore (truyền vào để test được trên Emulator)
  * @param input - Thông tin chuyến đi và danh sách thành viên
@@ -222,7 +222,7 @@ export async function createTrip(
   if (startDate) tripData.startDate = startDate
   if (endDate) tripData.endDate = endDate
 
-  // Ghi trip, memberQrs và memberSecrets trong 1 batch (rules dùng existsAfter/getAfter để duyệt nguyên tử)
+  // Ghi trip và toàn bộ memberQrs trong 1 batch (rules dùng existsAfter/getAfter để duyệt nguyên tử)
   const batch = writeBatch(firestore)
   batch.set(doc(firestore, 'trips', tripId), tripData)
 
@@ -235,33 +235,23 @@ export async function createTrip(
     }
   }
 
-  for (const memberId of memberIds) {
-    batch.set(doc(firestore, 'trips', tripId, 'memberSecrets', memberId), {
-      code: randomId(12),
-      updatedAt: serverTimestamp(),
-    })
-  }
-
   await batch.commit()
   return tripId
 }
 
 /**
- * Cập nhật thông tin chuyến đi, đồng bộ `memberIds`, thêm/xóa `memberQrs` và `memberSecrets` trong một `writeBatch`.
- * Khi truyền `previousMemberIds`, chỉ sinh mã mới cho thành viên vừa thêm và xóa mã của thành viên bị gỡ, giữ nguyên mã cũ.
+ * Cập nhật thông tin chuyến đi, đồng bộ `memberIds` và thêm/xóa `memberQrs` trong một `writeBatch`.
  *
  * @param firestore - Thực thể Firestore
  * @param tripId - Mã chuyến đi cần cập nhật
  * @param input - Dữ liệu chuyến đi mới
  * @param qrs - Bản đồ thay đổi QR: chuỗi để ghi/cập nhật, `null` để xóa khỏi `memberQrs`
- * @param previousMemberIds - Danh sách `memberIds` trước khi sửa để đồng bộ `memberSecrets` (tùy chọn)
  */
 export async function updateTrip(
   firestore: Firestore,
   tripId: string,
   input: TripInput,
   qrs: Record<string, string | null>,
-  previousMemberIds?: string[],
 ): Promise<void> {
   const members = input.members.map(sanitizeMember)
   const memberIds = members.map((m) => m.id)
@@ -293,51 +283,27 @@ export async function updateTrip(
     }
   }
 
-  if (previousMemberIds) {
-    const previousSet = new Set(previousMemberIds)
-    const nextSet = new Set(memberIds)
-
-    for (const memberId of memberIds) {
-      if (!previousSet.has(memberId)) {
-        batch.set(doc(firestore, 'trips', tripId, 'memberSecrets', memberId), {
-          code: randomId(12),
-          updatedAt: serverTimestamp(),
-        })
-      }
-    }
-
-    for (const memberId of previousMemberIds) {
-      if (!nextSet.has(memberId)) {
-        batch.delete(doc(firestore, 'trips', tripId, 'memberSecrets', memberId))
-      }
-    }
-  }
-
   await batch.commit()
 }
 
 /**
- * Xóa hoàn toàn một chuyến đi cùng toàn bộ subcollection (`expenses`, `payments`, `memberQrs`, `memberSecrets`, `bindings`).
+ * Xóa hoàn toàn một chuyến đi cùng toàn bộ subcollection (`expenses`, `payments`, `memberQrs`).
  * Firestore không tự xóa subcollection khi xóa document cha nên phải chia batch tối đa 450 thao tác.
  *
  * @param firestore - Thực thể Firestore
  * @param tripId - Mã chuyến đi cần xóa
  */
 export async function deleteTripCascade(firestore: Firestore, tripId: string): Promise<void> {
-  const [expensesSnap, paymentsSnap, qrsSnap, secretsSnap, bindingsSnap] = await Promise.all([
+  const [expensesSnap, paymentsSnap, qrsSnap] = await Promise.all([
     getDocs(collection(firestore, 'trips', tripId, 'expenses')),
     getDocs(collection(firestore, 'trips', tripId, 'payments')),
     getDocs(collection(firestore, 'trips', tripId, 'memberQrs')),
-    getDocs(collection(firestore, 'trips', tripId, 'memberSecrets')),
-    getDocs(collection(firestore, 'trips', tripId, 'bindings')),
   ])
 
   const refs: DocumentReference[] = [
     ...expensesSnap.docs.map((d) => d.ref),
     ...paymentsSnap.docs.map((d) => d.ref),
     ...qrsSnap.docs.map((d) => d.ref),
-    ...secretsSnap.docs.map((d) => d.ref),
-    ...bindingsSnap.docs.map((d) => d.ref),
     // Đặt document cha cuối cùng để các subcollection được dọn sạch trước
     doc(firestore, 'trips', tripId),
   ]

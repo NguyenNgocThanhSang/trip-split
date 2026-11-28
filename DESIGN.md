@@ -17,9 +17,9 @@ Thay Google Sheet chia tiền đi chơi bằng web app mobile-first, **miễn ph
 | D3 | **UI: shadcn/ui + lucide-react + Tailwind** | Component sẵn (Drawer, Tabs, Toggle…), code nằm trong repo, nhẹ. |
 | D4 | **Thanh toán là sổ cái giao dịch** (`payments`: A→B số X, cho phép trả một phần) | Kế hoạch "ai trả ai" tính lại mỗi khi sổ đổi; tick trên kế hoạch sẽ lệch/mất. Payment trừ vào số dư → kế hoạch luôn tính trên phần còn nợ. |
 | D5 | **Trip ID ngẫu nhiên 10 ký tự** làm URL (`/t/k3x9p2qm7a`) + chặn `list` + `noindex` | Link = quyền truy cập; trang hiện STK ngân hàng → không được đoán ra, không bị index. |
-| D6 | **Admin = Google Sign-In (1 UID cố định); Khách = Anonymous Auth + link cá nhân `?k=`** | PIN kiểm tra ở frontend thì bypass được. Khách mở link chung chỉ xem; mở link cá nhân `?k=<memberId>.<code>` sẽ tự bind vào `bindings/{uid}` để xác minh danh tính ghi ở `firestore.rules`, vẫn tách riêng với góc nhìn `WhoAmI`. |
+| D6 | **Admin = Firebase Auth Google Sign-In, 1 UID cố định trong rules** | PIN kiểm tra ở frontend thì bypass được. Google Sign-In một chạm, không phải nhớ mật khẩu, tự nhớ phiên. Khách không đăng nhập. |
 | D7 | **Danh bạ bạn bè trong MVP** | QR cần thông tin ngân hàng — nhập lại STK mỗi chuyến rất phiền. |
-| D8 | **Hosting: Cloudflare Workers Static Assets** (`wrangler.jsonc`, auto deploy từ GitHub) | Free, băng thông không giới hạn, không sleep, hỗ trợ SPA fallback qua `assets.not_found_handling: "single-page-application"`. **Đã chốt** (chủ dự án muốn tìm hiểu Cloudflare). Firebase chỉ dùng cho Firestore + Auth. |
+| D8 | **Hosting: Cloudflare Pages** (auto deploy từ GitHub) | Free, băng thông không giới hạn, không sleep. **Đã chốt** (chủ dự án muốn tìm hiểu Cloudflare). Firebase chỉ dùng cho Firestore + Auth. |
 | D9 | **Tiền là số nguyên VND** (`int`), không bao giờ dùng float | VND không có đơn vị lẻ; chia phải khớp tổng tuyệt đối. |
 | D10 | **Không dùng Cloud Storage.** Ảnh QR MoMo tĩnh nén client-side ≤ 70 KB, lưu dạng data URL trong Firestore | Cloud Storage for Firebase bắt buộc gói Blaze (đã kiểm tra: firebase.google.com/docs/storage/faqs-storage-changes-announced-sept-2024). |
 | D11 | **Ảnh thẻ tổng kết → giai đoạn 2** | Nút Copy + Web Share đủ cho MVP; chụp DOM có ảnh QR cross-origin dễ lỗi CORS. |
@@ -31,8 +31,8 @@ Thay Google Sheet chia tiền đi chơi bằng web app mobile-first, **miễn ph
 | Dịch vụ | Gói | Giới hạn cần biết | Khi vượt |
 |---|---|---|---|
 | Cloud Firestore | Firebase Spark | 50.000 đọc · 20.000 ghi · 20.000 xóa / ngày; 1 GiB lưu trữ; 10 GiB/tháng tải ra | Bị chặn tới khi reset quota, không phát sinh phí |
-| Firebase Auth | Firebase Spark | Google Sign-In + Anonymous Auth miễn phí (không bật SMS — SMS cần Blaze) | — |
-| Cloudflare Workers | Free (Static Assets) | Băng thông & request tĩnh không giới hạn; `wrangler.jsonc` cấu hình SPA fallback | Giới hạn request Worker miễn phí |
+| Firebase Auth | Firebase Spark | Google Sign-In miễn phí (không bật SMS — SMS cần Blaze) | — |
+| Cloudflare Pages | Free | Băng thông & request tĩnh không giới hạn; 500 lượt build/tháng | Build bị chặn tới tháng sau |
 | `img.vietqr.io` | Miễn phí, không key | Không có SLA | Luôn có fallback copy STK (mục 8) |
 
 **Ước lượng cao điểm** (15 người đang đi chơi, 40 khoản chi/ngày, mỗi người mở app 5 lần/ngày): ~1.500 lượt đọc/ngày (~3% quota, nhờ cache offline), ~100 lượt ghi/ngày (~0,5%), ~150 KB dữ liệu/chuyến kể cả ảnh QR MoMo. Dư hàng chục lần.
@@ -46,9 +46,9 @@ Thay Google Sheet chia tiền đi chơi bằng web app mobile-first, **miễn ph
 ```
   Điện thoại / Desktop (trình duyệt)
   ┌──────────────────────────────────────────┐
-  │ SPA React (Cloudflare Workers, file tĩnh)│
+  │ SPA React (Cloudflare Pages, file tĩnh)  │
   │  ├─ src/lib     logic thuần (test được)  │
-  │  ├─ src/data    Firestore & Auth hooks   │
+  │  ├─ src/data    Firestore hooks          │
   │  └─ src/pages   UI shadcn                │
   └───────┬──────────────────┬───────────────┘
           │ Firestore SDK    │ <img referrerpolicy="no-referrer">
@@ -57,11 +57,11 @@ Thay Google Sheet chia tiền đi chơi bằng web app mobile-first, **miễn ph
           ▼
   Firebase (Spark)
    ├─ Firestore  ← security rules = phân quyền
-   └─ Auth       ← Google Sign-In (1 UID admin) + Anonymous Auth (link cá nhân khách)
+   └─ Auth       ← Google Sign-In, chỉ 1 UID admin
 ```
 
 - **Không có server code.** Mọi tính toán (chia tiền, số dư, kế hoạch trả) chạy ở client từ dữ liệu thô, memoize bằng `useMemo` → không lưu kết quả tính sẵn, không bao giờ lệch.
-- **Realtime**: trang chuyến đi mở 3 listener chính (`trips/{id}`, `expenses`, `payments`) kèm listener `bindings/{uid}` (nếu máy đang giữ phiên ẩn danh) và `memberSecrets` (nếu là Admin). `memberQrs` chỉ `getDoc` khi bấm xem QR MoMo.
+- **Realtime**: trang chuyến đi mở đúng 3 listener `onSnapshot`: `trips/{id}`, `expenses`, `payments`. `memberQrs` chỉ `getDoc` khi bấm xem QR MoMo.
 - **Offline**: `initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) })` → mất sóng vẫn xem được chuyến đã mở; ghi được xếp hàng và đồng bộ khi có mạng (theo dõi `snapshot.metadata.hasPendingWrites`).
 
 ---
@@ -75,7 +75,7 @@ Thay Google Sheet chia tiền đi chơi bằng web app mobile-first, **miễn ph
 | Dữ liệu | Firebase JS SDK (modular): `firebase/firestore`, `firebase/auth` |
 | Test | Vitest (logic), `@firebase/rules-unit-testing` + Firestore Emulator (rules) |
 | Local dev | Firebase Emulator Suite (Firestore 8080, Auth 9099, UI 4000) — cần Java 21+ (máy đã có Java 25) |
-| CI/CD | Cloudflare Workers Static Assets (`wrangler.jsonc`) build từ GitHub; rules deploy bằng `npm run deploy:rules` |
+| CI/CD | Cloudflare Pages build từ GitHub; rules deploy bằng `firebase deploy --only firestore:rules` |
 
 Phiên bản: dùng bản mới nhất tại thời điểm scaffold, không chốt số cứng trong tài liệu này.
 
@@ -84,7 +84,7 @@ Phiên bản: dùng bản mới nhất tại thời điểm scaffold, không ch�
 
 Quy tắc UI:
 - Dùng component shadcn có sẵn trước; component nghiệp vụ chỉ ghép từ chúng; không sửa tay `src/components/ui/` trừ khi bắt buộc.
-- Mọi sheet ngắn đi qua `ResponsiveModal` dạng **Drawer** (`repositionInputs={false}`, `max-h-[85dvh]`) khi `< 768px` và **Dialog** trên desktop. Riêng các form dài nhiều ô nhập (`ExpenseForm`, form bạn bè ở `AdminFriends`) dùng `mobileVariant="fullscreen"` dựng trên **Radix Dialog** (`h-dvh`, giữ nguyên focus trap/Escape/ARIA) kết hợp `interactive-widget=resizes-content`, đo `window.visualViewport` để bù `paddingBottom` trên iOS Safari và `scrollIntoView({ block: 'center' })` khi focus ô nhập.
+- Mọi form/sheet đi qua `ResponsiveModal`: **Drawer** (bottom sheet) khi màn hình < 768px, **Dialog** trên desktop.
 
 ---
 
@@ -101,24 +101,20 @@ trip-split/
 │  │  ├─ vietqr.ts           # buildVietQrUrl, toAscii
 │  │  ├─ reminder.ts         # buildGroupReminder, buildPersonalReminder
 │  │  ├─ id.ts               # randomId (crypto.getRandomValues)
-│  │  ├─ memberLink.ts       # buildPersonalTripUrl, parseMemberKeyParam, isValidMemberCode
-│  │  ├─ permissions.ts      # canMarkTransfer, canAddExpense, canEditExpense, canUndoPayment
-│  │  ├─ members.ts          # memberInUse (kiểm tra cả createdByMemberId)
 │  │  ├─ banks.ts            # danh sách ngân hàng tĩnh (BIN, code, tên ngắn)
 │  │  ├─ image.ts            # nén ảnh QR MoMo (Canvas → WebP/JPEG ≤ 70 KB → data URL) — không test unit
 │  │  └─ *.test.ts
 │  ├─ data/
 │  │  ├─ firebase.ts         # initializeApp, Firestore (offline cache), Auth, kết nối emulator
 │  │  ├─ types.ts            # kiểu document Firestore (mục 6)
-│  │  ├─ trips.ts            # useTrip, useTripList, createTrip, updateTrip, deleteTripCascade
+│  │  ├─ trips.ts            # useTrip, useTripList, createTrip, updateTrip, deleteTrip
 │  │  ├─ expenses.ts         # useExpenses, addExpense, updateExpense, deleteExpense
 │  │  ├─ payments.ts         # usePayments, addPayment, deletePayment
 │  │  ├─ memberQrs.ts        # getMemberQr, setMemberQr
-│  │  ├─ memberAccess.ts     # useMemberSecrets, generateMissingSecrets, rotateMemberSecret, useMemberBinding
 │  │  ├─ friends.ts          # useFriends, CRUD
-│  │  └─ auth.ts             # useAdmin, useAuthUser, ensureAnonymousAuth, signInWithGoogle, signOut
+│  │  └─ auth.ts             # useAdmin, signInWithGoogle, signOut
 │  ├─ hooks/
-│  │  ├─ useMe.ts            # Góc nhìn "Bạn là ai" (localStorage theo tripId)
+│  │  ├─ useMe.ts            # "Bạn là ai" (localStorage theo tripId)
 │  │  ├─ useOnlineStatus.ts
 │  │  └─ useMediaQuery.ts    # cho ResponsiveModal
 │  ├─ pages/
@@ -131,27 +127,24 @@ trip-split/
 │  │  └─ NotFound.tsx
 │  ├─ components/
 │  │  ├─ ui/                 # shadcn (sinh bởi CLI)
-│  │  ├─ ResponsiveModal.tsx # Drawer/Fullscreen Dialog trên mobile, Dialog trên desktop
+│  │  ├─ ResponsiveModal.tsx # Drawer trên mobile, Dialog trên desktop
 │  │  ├─ MoneyInput.tsx      # ô nhập tiền: gõ "190k" → preview 190.000đ
 │  │  ├─ MemberChips.tsx     # chọn 1 (người ứng) / chọn nhiều (người tham gia)
-│  │  ├─ MemberLinksSection.tsx # quản lý link cá nhân & xoay mã thành viên cho Admin
-│  │  ├─ WriteAccessNoticeSheet.tsx # giải thích khi khách bấm ghi nhưng chưa bind/bị thu hồi/khác cặp
-│  │  ├─ TripAccessBanners.tsx # cảnh báo thu hồi/lỗi mã và dòng nhắc chế độ chỉ xem
 │  │  ├─ ExpenseForm.tsx
 │  │  ├─ SummaryTable.tsx    # Đã ứng | Phải chịu | Chênh lệch
 │  │  ├─ SettlementList.tsx
 │  │  ├─ QrSheet.tsx         # ảnh VietQR + fallback copy + tab QR MoMo
 │  │  ├─ MarkPaidSheet.tsx   # xác nhận đã chuyển, sửa được số tiền (trả một phần)
 │  │  ├─ PaymentsHistory.tsx
-│  │  ├─ WhoAmI.tsx          # chọn góc nhìn "Bạn là ai?"
+│  │  ├─ WhoAmI.tsx          # "Bạn là ai?"
 │  │  ├─ ReminderActions.tsx # Copy / Share (nhóm & từng người)
 │  │  ├─ OfflineBanner.tsx
 │  │  └─ AdminGuard.tsx
 │  ├─ App.tsx  main.tsx  index.css
 ├─ tests/rules/firestore.rules.test.ts
-├─ wrangler.jsonc            # Cloudflare Workers Static Assets (SPA fallback)
 ├─ public/
-│  ├─ _headers               # header bảo mật & CSP Report-Only (mục 7.3)
+│  ├─ _redirects             # "/*  /index.html  200" (SPA fallback cho Cloudflare)
+│  ├─ _headers               # header bảo mật (mục 7.3)
 │  └─ robots.txt             # "User-agent: *" + "Disallow: /"
 ├─ index.html                # có <meta name="robots" content="noindex, nofollow">
 ├─ firestore.rules
@@ -207,8 +200,6 @@ interface Expense {                // trips/{tripId}/expenses/{expenseId}
   note: string;                    // 0..200, '' nếu trống
   date: string;                    // "2026-12-20"
   createdBy: 'admin' | 'guest';    // bất biến
-  createdByUid?: string;           // Firebase Auth UID của khách khi tạo (vắng mặt ở admin/dữ liệu cũ)
-  createdByMemberId?: string;      // ID thành viên đã xác minh lúc tạo (bất biến, dùng kiểm quyền sửa/xóa)
   createdAt: Timestamp; updatedAt: Timestamp;
 }
 
@@ -218,8 +209,6 @@ interface Payment {                // trips/{tripId}/payments/{paymentId}
   amount: VND;                     // số tiền thực tế đã chuyển (có thể là một phần)
   note: string;                    // 0..120
   markedBy: 'admin' | 'guest';     // bất biến
-  createdByUid?: string;           // Firebase Auth UID của khách khi ghi (vắng mặt ở admin/dữ liệu cũ)
-  createdByMemberId?: string;      // ID thành viên đã xác minh lúc ghi (dùng kiểm quyền hoàn tác & hiển thị)
   paidAt: Timestamp;               // = request.time
 }
 
@@ -227,24 +216,13 @@ interface MemberQr {               // trips/{tripId}/memberQrs/{memberId} — �
   dataUrl: string;                 // copy từ friend.momoQrDataUrl khi thêm thành viên
   updatedAt: Timestamp;
 }
-
-interface MemberSecret {           // trips/{tripId}/memberSecrets/{memberId} — CHỈ admin đọc/ghi
-  code: string;                    // mã bí mật 12..32 ký tự [a-z0-9] cho link cá nhân ?k=<memberId>.<code>
-  updatedAt: Timestamp;
-}
-
-interface MemberBinding {          // trips/{tripId}/bindings/{uid} — liên kết Anonymous UID ↔ memberId
-  memberId: string;                // ∈ trip.memberIds
-  code: string;                    // phải khớp memberSecrets/{memberId}.code tại thời điểm đọc/ghi
-  updatedAt: Timestamp;
-}
 ```
 
 **Ghi chú thiết kế**
 - `members` là **snapshot** từ danh bạ: đọc thông tin chuyến + STK cả nhóm chỉ tốn 1 lượt đọc, khách không bao giờ chạm `friends`, chuyến cũ không đổi khi bạn đổi STK. Trang sửa chuyến có nút "Cập nhật từ danh bạ".
 - Ảnh QR MoMo tách ra `memberQrs` để document `trip` không phình (giới hạn 1 MiB) và không tốn lượt đọc nếu không ai xem.
-- **Không cho xóa thành viên** đã có trong expense/payment nào (`memberInUse` kiểm tra `payerId`, `participantIds`, `fixedAmounts`, `fromId`, `toId` và cả `createdByMemberId` để giữ lịch sử tác giả).
-- **Xóa chuyến**: Firestore không tự xóa subcollection → client (`deleteTripCascade`) xóa `expenses`, `payments`, `memberQrs`, `memberSecrets` và `bindings` theo batch rồi mới xóa `trip`.
+- **Không cho xóa thành viên** đã có trong expense/payment nào (UI chặn, kèm lý do).
+- **Xóa chuyến**: Firestore không tự xóa subcollection → client xóa `expenses`, `payments`, `memberQrs` theo batch rồi mới xóa `trip`.
 - Không lưu phần chia, số dư hay kế hoạch trả — luôn tính từ `expenses` + `payments`.
 - Mọi `createdAt`/`updatedAt`/`paidAt` ghi bằng `serverTimestamp()` (rules so với `request.time`).
 - Index: không cần index tổ hợp; sắp xếp danh sách chi tiêu theo `date` rồi `createdAt` làm ở client (< 100 khoản/chuyến).
@@ -253,59 +231,195 @@ interface MemberBinding {          // trips/{tripId}/bindings/{uid} — liên k�
 
 ## 7. Phân quyền & bảo mật
 
-### 7.1 Tách "Góc nhìn (View Lens)" & "Danh tính ghi (Write Identity)"
+### 7.1 Ma trận quyền
 
-Ứng dụng tách rạch ròi hai lớp để vừa giữ tính minh bạch (mọi người xem được bảng tổng kết của cả nhóm) vừa chặn giả mạo thao tác ghi ở `firestore.rules`:
+| Hành động | Khách (có link) | Admin |
+|---|---|---|
+| Xem 1 chuyến, chi tiêu, thanh toán, QR MoMo | ✅ | ✅ |
+| Liệt kê tất cả chuyến | ❌ | ✅ |
+| Sửa chuyến (thành viên, STK, cài đặt), tải ảnh QR MoMo | ❌ *(chống tráo STK/QR)* | ✅ |
+| Thêm chi tiêu | khi `allowGuestExpenses && !locked`, `createdBy == 'guest'` | ✅ |
+| Sửa/xóa chi tiêu | chỉ khoản `createdBy == 'guest'`, khi `allowGuestExpenses && !locked` | ✅ mọi khoản |
+| Ghi "Tôi đã chuyển" | khi `!locked`, `markedBy == 'guest'` | ✅ |
+| Hoàn tác thanh toán | chỉ bản ghi `markedBy == 'guest'`, khi `!locked` | ✅ |
+| Danh bạ bạn bè | ❌ | ✅ |
 
-1. **Góc nhìn (`WhoAmI` + `useMe` `localStorage`)**: giữ cho **tất cả** (khách và Admin), đổi tự do bất kỳ lúc nào (nút *"Chỉ xem chung (không chọn)"* gọi `clear()`). Chỉ dùng để hiển thị thẻ số dư cá nhân, sắp giao dịch liên quan lên đầu và điền sẵn `defaultPayerId` trong `ExpenseForm`.
-2. **Danh tính ghi (`bindings/{uid}` qua Anonymous Auth + `?k=<memberId>.<code>`)**: Admin cấp cho mỗi thành viên một mã bí mật (`memberSecrets/{memberId}`, 12 ký tự `[a-z0-9]`). Khi mở link cá nhân `/t/<tripId>?k=<memberId>.<code>`, client tự gọi `signInAnonymously()`, ghi `bindings/{uid}` (rules đối chiếu `code == memberSecrets/{memberId}.code`), rồi xóa `?k=` khỏi URL mà không đụng `?pay=`.
-   - Người mở **link chung** `/t/<tripId>` giữ chế độ chỉ xem nếu chưa bind trên thiết bị đó (nếu máy đã từng bind trước đó, `useMemberBinding` tự khôi phục phiên ẩn danh để nhận diện lại).
-   - **Khả năng đa thiết bị / Zalo WebView**: quyền sửa/xóa bản ghi của khách kiểm theo `resource.data.createdByMemberId == myMemberId(tripId)` (thay vì khóa cứng `createdByUid`) để chính chủ mở lại link cá nhân ở trình duyệt khác vẫn sửa/xóa được khoản của mình; `createdByUid` vẫn lưu khi tạo để đối soát.
-   - **Thu hồi mã & giới hạn hiện hành**: Admin bấm *"Tạo lại mã"* sẽ ghi đè `memberSecrets/{memberId}` khiến `hasValidBinding` ở rules fail ngay lập tức. *Giới hạn:* sau khi xoay mã, máy đang mở trang có thể vẫn hiện "đã xác minh" tới khi tải lại; mọi thao tác ghi vẫn bị rules chặn và hiện toast lỗi.
-   - Logic kiểm quyền ở UI tập trung toàn bộ trong `src/lib/permissions.ts` (`canMarkTransfer`, `canAddExpense`, `canEditExpense`, `canUndoPayment`).
-
-| Hành động | Khách (link chung / chưa bind) | Khách đã bind là thành viên `M` | Admin |
-|---|---|---|---|
-| Xem 1 chuyến, chi tiêu, thanh toán, QR MoMo, đổi góc nhìn `WhoAmI` | ✅ | ✅ | ✅ |
-| Liệt kê tất cả chuyến, xem/sửa danh bạ `friends` | ❌ | ❌ | ✅ |
-| Sửa chuyến, tải ảnh QR MoMo, đọc/xoay `memberSecrets`, list `bindings` | ❌ *(chống tráo STK/QR & lộ mã)* | ❌ | ✅ |
-| Thêm chi tiêu | ❌ *(mở sheet hướng dẫn)* | khi `allowGuestExpenses && !locked`, gắn `createdByMemberId == M` | ✅ |
-| Sửa/xóa chi tiêu | ❌ | chỉ khoản `createdBy == 'guest'` có `createdByMemberId == M` (khi `allowGuestExpenses && !locked`) | ✅ mọi khoản (kể cả legacy) |
-| Ghi "Đã chuyển" | ❌ *(mở sheet hướng dẫn)* | khi `!locked` và `M ∈ {fromId, toId}` | ✅ mọi giao dịch |
-| Hoàn tác thanh toán | ❌ | chỉ bản ghi `markedBy == 'guest'` có `createdByMemberId == M` (khi `!locked`) | ✅ mọi khoản (kể cả legacy) |
+Mô hình tin cậy: khách không đăng nhập nên **ai có link đều có thể ghi thay người khác** — chấp nhận được với nhóm bạn thân. Rules chặn: ghi khi đã khóa, sai schema, tráo STK/QR, sửa khoản của admin, liệt kê chuyến, đọc danh bạ.
 
 ### 7.2 `firestore.rules`
 
-Rules thực tế nằm ở `firestore.rules` (có comment tiếng Việt trên từng helper và `allow`), đã vượt qua 32 test trên Firestore Emulator (`tests/rules/firestore.rules.test.ts`):
-- **Helpers xác minh**: `secretMatches(tripId, memberId, code)` kiểm tra `memberSecrets/{memberId}.code == code`; `hasValidBinding(tripId)` kiểm tra `bindings/{request.auth.uid}` tồn tại, `memberId in trip(tripId).memberIds` và khớp `memberSecrets`; `myMemberId(tripId)` đọc `memberId` từ binding; `sameOptField` giữ bất biến `createdByUid` / `createdByMemberId`.
-- **`memberSecrets/{memberId}`**: `read, delete: if isAdmin()`; `create, update: if isAdmin()` với `existsAfter`/`getAfter` hỗ trợ `writeBatch` tạo chuyến mới và mã `[a-z0-9]{12,32}`.
-- **`bindings/{uid}`**: `get` chỉ cho Admin hoặc chính chủ `uid` (khi doc chưa tồn tại hoặc vẫn khớp `memberSecrets` + `memberIds`); `list` chỉ Admin; `create, update` chỉ `!isAdmin() && request.auth.uid == uid` với `code` khớp `memberSecrets`; `delete` cho Admin hoặc chính chủ `uid`.
-- **`expenses` & `payments`**: dùng `hasOnly` + `hasAll` (thay `exactKeys`) để tương thích dữ liệu cũ chưa có `createdByUid`/`createdByMemberId` và bản ghi của Admin; trong validator chỉ kiểm `isText(d.createdByMemberId, 64)` để Admin vẫn sửa được khoản chi sau khi gỡ người tạo; khách tạo mới bắt buộc gắn đúng `createdByUid == request.auth.uid` và `createdByMemberId == myMemberId(tripId)`, riêng `payments` yêu cầu `myMemberId(tripId) ∈ {fromId, toId}`. Dữ liệu cũ `guest` thiếu `createdByMemberId` chỉ Admin sửa/xóa được.
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
 
-### 7.3 Chống lộ link, thông tin ngân hàng & CSP
-- Chặn `list` trên `trips`, `memberSecrets` và `bindings`; Trip ID 10 ký tự ngẫu nhiên (~31^10 ≈ 8×10^14 tổ hợp); mã bí mật thành viên 12 ký tự (~31^12 ≈ 7,8×10^17 tổ hợp).
+    // ---------- helpers ----------
+    function isAdmin() {
+      return request.auth != null && request.auth.uid == 'REPLACE_WITH_ADMIN_UID';
+    }
+    function tripPath(tripId) { return /databases/$(db)/documents/trips/$(tripId); }
+    function tripExists(tripId) { return exists(tripPath(tripId)); }
+    function trip(tripId) { return get(tripPath(tripId)).data; }
+
+    function isMoney(v)        { return v is int && v >= 1 && v <= 1000000000; }
+    function isText(v, max)    { return v is string && v.size() >= 1 && v.size() <= max; }
+    function isOptText(v, max) { return v is string && v.size() <= max; }
+    function isDate(v)         { return v is string && v.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
+    function isQrDataUrl(v) {
+      return v is string && v.size() <= 100000
+        && v.matches('^data:image/(webp|jpeg|png);base64,[A-Za-z0-9+/=]+$');
+    }
+    function exactKeys(d, keys) { return d.keys().hasOnly(keys) && d.keys().hasAll(keys); }
+
+    // ---------- validators ----------
+    function validTrip(d) {
+      return d.keys().hasOnly(['name','startDate','endDate','members','memberIds',
+                               'allowGuestExpenses','locked','createdAt','updatedAt'])
+        && d.keys().hasAll(['name','members','memberIds','allowGuestExpenses','locked',
+                            'createdAt','updatedAt'])
+        && isText(d.name, 100)
+        && (!('startDate' in d) || isDate(d.startDate))
+        && (!('endDate' in d) || isDate(d.endDate))
+        && d.members is list && d.members.size() >= 2 && d.members.size() <= 20
+        && d.memberIds is list && d.memberIds.size() == d.members.size()
+        && d.allowGuestExpenses is bool && d.locked is bool
+        && d.updatedAt == request.time;
+    }
+
+    function validExpense(d, t) {
+      return exactKeys(d, ['name','amount','payerId','participantIds','fixedAmounts',
+                           'note','date','createdBy','createdAt','updatedAt'])
+        && isText(d.name, 100)
+        && isMoney(d.amount)
+        && d.payerId in t.memberIds
+        && d.participantIds is list
+        && d.participantIds.size() >= 1 && d.participantIds.size() <= 20
+        && d.participantIds.hasOnly(t.memberIds)
+        && d.fixedAmounts is map
+        && d.fixedAmounts.keys().hasOnly(d.participantIds)
+        && isOptText(d.note, 200)
+        && isDate(d.date)
+        && d.updatedAt == request.time;
+      // Rules không lặp được giá trị trong map → kiểm từng fixed & tổng fixed ≤ amount ở client (computeShares).
+    }
+
+    function validPayment(d, t) {
+      return exactKeys(d, ['fromId','toId','amount','note','markedBy','paidAt'])
+        && d.fromId in t.memberIds && d.toId in t.memberIds && d.fromId != d.toId
+        && isMoney(d.amount)
+        && isOptText(d.note, 120)
+        && d.paidAt == request.time;
+    }
+
+    function validFriend(d) {
+      return d.keys().hasOnly(['name','bankBin','bankShortName','accountNo','accountName',
+                               'momoQrDataUrl','createdAt','updatedAt'])
+        && d.keys().hasAll(['name','createdAt','updatedAt'])
+        && isText(d.name, 40)
+        && (!('bankBin' in d) || (d.bankBin is string && d.bankBin.matches('^[0-9]{6}$')))
+        && (!('bankShortName' in d) || isText(d.bankShortName, 30))
+        && (!('accountNo' in d) || isText(d.accountNo, 25))
+        && (!('accountName' in d) || isText(d.accountName, 60))
+        && (!('momoQrDataUrl' in d) || isQrDataUrl(d.momoQrDataUrl))
+        && d.updatedAt == request.time;
+    }
+
+    // ---------- collections ----------
+    match /friends/{friendId} {
+      allow read, delete: if isAdmin();
+      allow create: if isAdmin() && validFriend(request.resource.data)
+        && request.resource.data.createdAt == request.time;
+      allow update: if isAdmin() && validFriend(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt;
+    }
+
+    match /trips/{tripId} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        && tripId.matches('^[a-z0-9]{10}$')
+        && validTrip(request.resource.data)
+        && request.resource.data.createdAt == request.time;
+      allow update: if isAdmin()
+        && validTrip(request.resource.data)
+        && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isAdmin();
+
+      match /expenses/{expenseId} {
+        allow read: if tripExists(tripId);
+
+        allow create: if tripExists(tripId)
+          && validExpense(request.resource.data, trip(tripId))
+          && request.resource.data.createdAt == request.time
+          && ( (isAdmin() && request.resource.data.createdBy == 'admin')
+            || (trip(tripId).allowGuestExpenses && !trip(tripId).locked
+                && request.resource.data.createdBy == 'guest') );
+
+        allow update: if tripExists(tripId)
+          && validExpense(request.resource.data, trip(tripId))
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.createdBy == resource.data.createdBy
+          && ( isAdmin()
+            || (trip(tripId).allowGuestExpenses && !trip(tripId).locked
+                && resource.data.createdBy == 'guest') );
+
+        allow delete: if isAdmin()
+          || (tripExists(tripId) && trip(tripId).allowGuestExpenses && !trip(tripId).locked
+              && resource.data.createdBy == 'guest');
+      }
+
+      match /payments/{paymentId} {
+        allow read: if tripExists(tripId);
+
+        allow create: if tripExists(tripId)
+          && validPayment(request.resource.data, trip(tripId))
+          && ( (isAdmin() && request.resource.data.markedBy == 'admin')
+            || (!trip(tripId).locked && request.resource.data.markedBy == 'guest') );
+
+        allow update: if false;   // muốn sửa thì xóa rồi tạo lại
+
+        allow delete: if isAdmin()
+          || (tripExists(tripId) && !trip(tripId).locked && resource.data.markedBy == 'guest');
+      }
+
+      match /memberQrs/{memberId} {
+        allow read: if tripExists(tripId);
+        allow create, update: if isAdmin() && existsAfter(tripPath(tripId))
+          && memberId in getAfter(tripPath(tripId)).data.memberIds
+          && exactKeys(request.resource.data, ['dataUrl','updatedAt'])
+          && isQrDataUrl(request.resource.data.dataUrl)
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if isAdmin();
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;   // mặc định chặn mọi thứ khác
+    }
+  }
+}
+```
+
+Rules này **chưa được chạy thử** — phải qua bộ test ở mục 12 trước khi deploy.
+
+### 7.3 Chống lộ link & thông tin ngân hàng
+- Chặn `list` trên `trips`; ID 10 ký tự ngẫu nhiên (~31^10 ≈ 8×10^14 tổ hợp).
 - `<meta name="robots" content="noindex, nofollow">` trong `index.html` + `public/robots.txt` chặn toàn bộ.
-- `public/_headers` (Cloudflare Workers Static Assets):
+- `public/_headers` (Cloudflare Pages):
   ```
   /*
     Referrer-Policy: no-referrer
     X-Content-Type-Options: nosniff
     X-Robots-Tag: noindex, nofollow
-    X-Frame-Options: DENY
-    Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=()
-    Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' https://apis.google.com https://accounts.google.com; frame-src 'self' https://trip-split-4da89.firebaseapp.com https://accounts.google.com; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com; img-src 'self' https://img.vietqr.io data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   ```
-  - **Không đặt** `Cross-Origin-Opener-Policy: same-origin` vì sẽ làm hỏng popup Google Sign-In (`signInWithPopup`).
-  - **Chuyển CSP sang enforce**: sau khi deploy với `Content-Security-Policy-Report-Only`, mở DevTools kiểm tra console hoàn toàn sạch trên cả trang khách `/t/:tripId` (VietQR, MoMo QR, Anonymous Auth) lẫn luồng Admin Google Sign-In, rồi đổi tên header sang `Content-Security-Policy`.
-- Thẻ `<img>` VietQR đặt `referrerPolicy="no-referrer"` để không gửi URL (kể cả trước khi strip `?k=`) sang bên thứ ba.
+- Thẻ `<img>` VietQR đặt `referrerPolicy="no-referrer"` (trình duyệt hiện nay mặc định chỉ gửi domain, nhưng đặt rõ cho chắc).
 - Khách không có quyền ghi nào lên `trips/{id}` (chứa STK) và `memberQrs` → không tráo được thông tin nhận tiền.
 
 ### 7.4 Thiết lập Auth
-1. Authentication → Sign-in method → bật **Google** (cho Admin) và **Anonymous** (cho liên kết danh tính khách).
-2. Authentication → Settings → **Authorized domains**: thêm domain Cloudflare Workers (`*.workers.dev`, và domain riêng nếu có). Thiếu bước này đăng nhập Google Admin sẽ lỗi `auth/unauthorized-domain`.
-3. Dùng **`signInWithPopup`**, không dùng `signInWithRedirect`: app không host trên Firebase Hosting nên redirect dễ hỏng trên trình duyệt chặn cookie bên thứ ba (Safari, Chrome mới). `adminStateFor` coi phiên `isAnonymous === true` là `signed-out` để màn hình `/admin` luôn hiện nút đăng nhập Google bình thường.
-4. `signInAnonymously()` chỉ được gọi khi URL có `?k=` và chưa có `auth.currentUser` (luôn chờ `authStateReady()` trước để không ghi đè phiên Google của Admin).
-5. UID Admin (`BdmGrQUlwkdSxvcPNpNG1qIdKCk1`) được cấu hình trong `firestore.rules` và `.env` (`VITE_ADMIN_UID`).
+1. Authentication → Sign-in method → bật **Google**.
+2. Authentication → Settings → **Authorized domains**: thêm domain Cloudflare Pages (`<project>.pages.dev`, và domain riêng nếu có). Thiếu bước này đăng nhập sẽ lỗi `auth/unauthorized-domain`.
+3. Dùng **`signInWithPopup`**, không dùng `signInWithRedirect`: app không host trên Firebase Hosting nên redirect dễ hỏng trên trình duyệt chặn cookie bên thứ ba (Safari, Chrome mới).
+4. Đăng nhập lần đầu bằng tài khoản Google của chủ dự án → lấy UID trong Authentication → Users → dán vào `REPLACE_WITH_ADMIN_UID` → deploy rules. Người khác có đăng nhập Google được cũng không có quyền gì, vì rules so UID.
 
 ---
 
@@ -397,8 +511,8 @@ buildVietQrUrl({ bankBin, accountNo, accountName }, amount, note)
 Nội dung mặc định: `"{Tên người trả} tra tien {Tên chuyến}"`, tối đa 50 ký tự.
 `banks.ts`: snapshot tĩnh danh sách ngân hàng (BIN, code, tên ngắn) lấy một lần từ `https://api.vietqr.io/v2/banks`, commit vào repo — không gọi API lúc chạy.
 
-### 8.6 `reminder.ts` & `memberLink.ts`
-Nhắc cả nhóm (luôn dùng link chung `/t/<tripId>`, **không bao giờ** chứa `?k=`):
+### 8.6 `reminder.ts`
+Nhắc cả nhóm:
 ```
 💸 Chia tiền Đà Lạt 2026
 💰 Tổng chi: 1.105.000đ
@@ -410,18 +524,16 @@ Xem chi tiết & quét QR: https://<domain>/t/k3x9p2qm7a
 (Hết nợ → `✅ Cả nhóm đã thanh toán xong!`)
 
 Nhắc riêng từng người:
-- Khi **khách** bấm copy nhắc riêng: dùng link chung kèm `?pay=<fromId>.<toId>` (không chứa `?k=`).
-- Khi **Admin** bấm copy nhắc riêng (đã tải `memberSecrets` của người nợ): tự nhúng link cá nhân `?k=<fromId>.<code>&pay=<fromId>.<toId>` kèm toast cảnh báo chỉ gửi riêng cho người đó:
 ```
 👋 Chung ơi, phần của bạn chuyến Đà Lạt 2026 là 273.750đ (chuyển cho Sang).
 🏦 Vietcombank - 0123456789 (NGUYEN NGOC SANG)
 📝 Nội dung: Chung tra tien Da Lat 2026
-🔗 Quét QR điền sẵn tiền: https://<domain>/t/k3x9p2qm7a?k=chung.chungcode1234&pay=chung.sang
+🔗 Quét QR điền sẵn tiền: https://<domain>/t/k3x9p2qm7a?pay=chung.sang
 ```
-`?pay=<fromId>.<toId>` mở thẳng QR sheet của giao dịch đó (dấu `.` làm phân cách vì ID có thể chứa `-`; giao dịch không còn tồn tại thì bỏ qua). `parseMemberKeyParam` tách `?k=<memberId>.<code>` bằng `lastIndexOf('.')` và kiểm `^[a-z0-9]{12,32}$`.
+`?pay=<fromId>.<toId>` mở thẳng QR sheet của giao dịch đó (dấu `.` làm phân cách vì ID có thể chứa `-`; giao dịch không còn tồn tại thì bỏ qua).
 
 ### 8.7 `id.ts`
-`randomId(10)` cho Trip ID và `randomId(12)` cho `memberSecrets.code`, dùng `crypto.getRandomValues`, bảng ký tự `[a-z0-9]` bỏ ký tự dễ nhầm (`0 o 1 l i`). Rules chấp nhận `^[a-z0-9]{10}$` cho Trip ID và `^[a-z0-9]{12,32}$` cho mã thành viên.
+`randomId(10)` dùng `crypto.getRandomValues`, bảng ký tự `[a-z0-9]` bỏ ký tự dễ nhầm (`0 o 1 l i`). Rules chấp nhận `^[a-z0-9]{10}$`.
 
 ---
 
@@ -433,24 +545,24 @@ Nhắc riêng từng người:
 | `/t/:tripId` | mọi người | Trang chuyến đi; `?pay=` mở thẳng QR |
 | `/admin` | — | Nút "Đăng nhập bằng Google"; sai tài khoản → báo "Tài khoản này không có quyền admin" |
 | `/admin/trips` | admin | Danh sách chuyến (mới nhất trước), nút "Tạo chuyến", copy link, khóa/mở khóa nhanh |
-| `/admin/trips/new`, `/admin/trips/:tripId` | admin | Tên, ngày, tick thành viên từ danh bạ, "Cập nhật từ danh bạ", switch "Cho phép nhóm nhập", switch "Khóa sổ", copy link, **Link cá nhân từng thành viên** (copy `?k=`, tạo lại mã, tạo mã cho thành viên thiếu), xóa chuyến (confirm) |
-| `/admin/friends` | admin | CRUD danh bạ: tên, chọn ngân hàng (Command search), STK, chủ TK, tải ảnh QR MoMo (nén bằng `image.ts`); trên mobile dùng `mobileVariant="fullscreen"` |
+| `/admin/trips/new`, `/admin/trips/:tripId` | admin | Tên, ngày, tick thành viên từ danh bạ, "Cập nhật từ danh bạ", switch "Cho phép nhóm nhập", switch "Khóa sổ", copy link, xóa chuyến (confirm) |
+| `/admin/friends` | admin | CRUD danh bạ: tên, chọn ngân hàng (Command search), STK, chủ TK, tải ảnh QR MoMo (nén bằng `image.ts`) |
 | `*` | — | 404 |
 
-Admin đã đăng nhập khi mở `/t/:tripId` thấy thêm menu `⋮`: sửa chuyến, **Link cá nhân thành viên**, bật/tắt khách nhập, khóa sổ, sửa/xóa mọi khoản.
+Admin đã đăng nhập khi mở `/t/:tripId` thấy thêm menu `⋮`: sửa chuyến, bật/tắt khách nhập, khóa sổ, sửa/xóa mọi khoản.
 
 ### Trang chuyến đi `/t/:tripId` (mobile-first, thao tác một tay)
-- **Header**: tên chuyến, ngày, tổng chi; badge `🔒 Đã khóa sổ` / `✏️ Cả nhóm cùng nhập`; nút Copy link, Nhắc nợ, đổi góc nhìn `WhoAmI`.
-- **WhoAmI & `TripAccessBanners`**: giữ picker cho mọi người (`localStorage['tripsplit:me:<tripId>']`), đánh dấu `✓ đã xác minh` cạnh thành viên đã bind, nút *"Chỉ xem chung (không chọn)"* gọi `clear()`. Khi góc nhìn khác danh tính ghi → hiện dòng phụ *"Đang xem góc nhìn của X — chỉ xem"*; khi binding bị thu hồi/sai mã → hiện Alert đỏ.
+- **Header**: tên chuyến, ngày, tổng chi; badge `🔒 Đã khóa sổ` / `✏️ Cả nhóm cùng nhập`; nút Copy link, Nhắc nợ, đổi "Bạn là ai".
+- **WhoAmI**: lần đầu mở → chọn tên mình (lưu `localStorage['tripsplit:me:<tripId>']`). Dùng để: hiện thẻ số dư của mình, đưa giao dịch liên quan lên đầu, điền sẵn người ứng và người trả.
 - **`OfflineBanner`** dính dưới header khi mất mạng hoặc còn thay đổi chờ đồng bộ.
 - **Tabs**:
   1. **Tổng kết & Thanh toán** *(mặc định)*
-     - Thẻ to của tôi (hoặc thẻ "Chọn tên" kèm gợi ý link cá nhân khi chưa bind).
-     - **Ai trả cho ai** (`SettlementList`): mỗi card "Chung → Sang **273.750đ**" + nút **Quét QR** và **Đã chuyển** (vẫn hiện khi chưa khóa; bấm khi chưa đủ quyền → mở `WriteAccessNoticeSheet` giải thích), kèm nút copy nhắc riêng. Hết nợ → "🎉 Cả nhóm đã thanh toán xong!".
+     - Thẻ to của tôi: "Bạn cần trả 165.000đ" / "Bạn được nhận lại 200.000đ" / "Bạn đã xong 🎉".
+     - **Ai trả cho ai** (`SettlementList`): mỗi card "Chung → Sang **273.750đ**" + nút to **Quét QR** và **Đã chuyển** (≥ 44px), kèm nút nhỏ copy nhắc riêng. Hết nợ → "🎉 Cả nhóm đã thanh toán xong!".
      - **Bảng từng người** (`SummaryTable`): Đã ứng | Phải chịu | Chênh lệch (xanh `+Nhận lại`, đỏ `−Cần trả`, xám `Đã xong`).
-     - **Lịch sử đã trả** (`PaymentsHistory`): kèm giờ, **người ghi** (`Trưởng nhóm ghi`, `{Tên} tự ghi` khi người trả tự ghi, `{Tên} ghi`, hoặc fallback `Thành viên ghi`), nút Hoàn tác (khi đủ quyền qua `canUndoPayment`).
-  2. **Chi tiêu** — danh sách hiển thị ngay **người nhập** trên từng dòng (`{Người ứng} ứng · {Ngày} · {Người nhập}`) và trong chi tiết; chạm để xem phần chia (+ Sửa/Xóa khi đủ `canEditExpense`); nút tròn **+** góc dưới phải khi `isAdmin || (allowGuestExpenses && !locked)` (bấm khi chưa bind/bị thu hồi → mở `WriteAccessNoticeSheet`).
-- **ExpenseForm** (trên mobile dùng `mobileVariant="fullscreen"` + thanh nút Hủy/Lưu sticky): Tên → `MoneyInput` (`inputMode="text"`) → Người ứng (gợi ý theo góc nhìn `me`, **không fallback** `memberOrder[0]`, bắt chọn + báo `"Chọn người đã ứng tiền"`) → Người tham gia → **"Chia không đều"** → **"Thêm chi tiết"**.
+     - **Lịch sử đã trả** (`PaymentsHistory`): kèm giờ, nút Hoàn tác (khi có quyền và chưa khóa).
+  2. **Chi tiêu** — danh sách (tên, số tiền, người ứng, badge `Cả nhóm (4)` / `Sang, Mơ` / `Chia riêng`); chạm để xem phần chia từng người (+ Sửa/Xóa nếu có quyền); nút tròn **+** góc dưới phải khi là admin hoặc `allowGuestExpenses && !locked`.
+- **ExpenseForm**: Tên → `MoneyInput` (`inputMode="text"` để gõ được `k`/`tr`, preview `= 190.000đ` ngay dưới) → Người ứng (chip chọn 1, mặc định là "tôi") → Người tham gia (chip chọn nhiều, mặc định tất cả, nút "Chọn tất cả/Bỏ hết") → mục thu gọn **"Chia không đều"**: ô `MoneyInput` cạnh từng người; ô trống hiện mờ `Tự tính: 50.000đ` → thanh trạng thái `✔ Khớp 190.000đ` hoặc `Alert` đỏ; nút Lưu khóa khi có lỗi. Ghi chú & ngày trong "Thêm chi tiết".
 - **QrSheet**:
   - Có STK: ảnh VietQR + 3 nút copy (**STK**, **Số tiền**, **Nội dung**) + nút **Tôi đã chuyển** ở dưới.
   - **Ảnh QR lỗi / offline**: tự chuyển sang khối chữ ngân hàng, STK, chủ TK, số tiền, nội dung — mỗi dòng một nút copy.
@@ -475,8 +587,8 @@ VITE_FIREBASE_APP_ID=
 VITE_ADMIN_UID=            # chỉ để UI ẩn/hiện nút admin; quyền thật nằm ở rules
 VITE_USE_EMULATOR=true
 ```
-- Firebase web config **không phải bí mật** (bảo mật nằm ở rules); vẫn để qua env cho gọn. Trên Cloudflare Workers khai báo cùng các biến (không có `VITE_USE_EMULATOR`).
-- Dev không cần project thật: `.firebaserc` có alias `default: "demo-tripsplit"` (emulator) và `prod: "trip-split-4da89"`.
+- Firebase web config **không phải bí mật** (bảo mật nằm ở rules); vẫn để qua env cho gọn. Trên Cloudflare Pages khai báo cùng các biến (không có `VITE_USE_EMULATOR`).
+- Dev không cần project thật: `.firebaserc` dùng project `demo-tripsplit` → emulator không gọi lên cloud.
 - `firebase.json`: `firestore.rules`, `firestore.indexes.json`, emulators `auth:9099`, `firestore:8080`, `ui:4000`.
 
 **Scripts** (`package.json`)
@@ -484,24 +596,22 @@ VITE_USE_EMULATOR=true
 |---|---|
 | `npm run dev` | Vite dev server |
 | `npm run emulators` | `firebase emulators:start --project demo-tripsplit` |
-| `npm test` | Vitest cho `src/**/*.test.{ts,tsx}` |
-| `npm run test:rules` | `firebase emulators:exec --only firestore --project demo-tripsplit "vitest run --dir tests"` |
-| `npm run deploy:rules` | `firebase deploy --only firestore:rules -P prod` |
-| `npm run typecheck` | `tsc --noEmit -p tsconfig.app.json` |
+| `npm test` | Vitest cho `src/lib` |
+| `npm run test:rules` | `firebase emulators:exec --only firestore "vitest run tests/rules"` |
+| `npm run typecheck` | `tsc --noEmit` |
 | `npm run build` | `tsc -b && vite build` |
-| `npm run lint` | `eslint .` |
-| `npm run preview` | `vite preview` |
+| `npm run lint` | ESLint |
 
 ---
 
 ## 11. Thứ tự triển khai
 
-1. **Scaffold**: `git init`; Vite React-TS; Tailwind; `npx shadcn@latest init` + add component ở mục 4; React Router; Vitest; ESLint; `wrangler.jsonc`, `public/_headers`, `robots.txt`; meta noindex.
-2. **`src/lib` theo TDD**: money → split → balances → settle → vietqr → reminder → id → members → memberLink → permissions.
-3. **Firebase local**: `firebase.json`, `.firebaserc`, `firestore.rules`, test rules + data với emulator; `src/data/*`.
-4. **Admin**: đăng nhập Google + guard, danh bạ (kèm nén ảnh QR MoMo), tạo/sửa/xóa chuyến, quản lý `memberSecrets` & link cá nhân.
-5. **Trang chuyến đi**: `WhoAmI` (view lens), `useMemberBinding` (write identity qua `?k=`), `WriteAccessNoticeSheet`, `TripAccessBanners`, Tổng kết & Thanh toán, Chi tiêu + `ExpenseForm` fullscreen mobile, `QrSheet` + `MarkPaidSheet` + `PaymentsHistory`, `ReminderActions`, `?pay=`, `OfflineBanner`.
-6. **Lên cloud**: bật Firestore + Auth (Google + Anonymous) trên project Firebase Spark; đẩy repo GitHub, nối Cloudflare Workers Static Assets (`wrangler.jsonc`); thêm domain `*.workers.dev` vào Authorized domains; deploy rules (`npm run deploy:rules`); kiểm tra console sạch dưới `CSP-Report-Only` rồi bật enforce `Content-Security-Policy`.
+1. **Scaffold**: `git init`; Vite React-TS; Tailwind; `npx shadcn@latest init` + add component ở mục 4; React Router; Vitest; ESLint; `public/_redirects`, `_headers`, `robots.txt`; meta noindex.
+2. **`src/lib` theo TDD**: money → split → balances → settle → vietqr → reminder → id. Xong phần này là lõi đúng.
+3. **Firebase local**: `firebase.json`, `.firebaserc` (demo), `firestore.rules`, test rules với emulator cho tới khi pass hết mục 12.2; `src/data/*`.
+4. **Admin**: đăng nhập Google + guard, danh bạ (kèm nén ảnh QR MoMo), tạo/sửa/xóa chuyến.
+5. **Trang chuyến đi**: WhoAmI, Tổng kết & Thanh toán, Chi tiêu + ExpenseForm, QrSheet + MarkPaidSheet + PaymentsHistory, ReminderActions, `?pay=`, OfflineBanner.
+6. **Lên cloud**: tạo Firebase project thật (Spark), bật Firestore (`asia-southeast1`) + Auth Google; đẩy repo GitHub, nối Cloudflare Pages (`npm run build`, output `dist`, env vars); thêm domain `.pages.dev` vào Authorized domains; đăng nhập lấy UID, dán vào rules, `firebase deploy --only firestore:rules`.
 7. **Cập nhật `AGENTS.md`** với lệnh build/test thật.
 
 ---
@@ -516,20 +626,22 @@ VITE_USE_EMULATOR=true
 - `toAscii`, cắt nội dung ≤ 50 ký tự, tin nhắc nợ chứa tên chuyến, danh sách và link.
 
 ### 12.2 Rules (`npm run test:rules`)
-1. Khách chưa auth/ẩn danh `get` trip ✅; `list` trips ❌; Admin `list` ✅.
-2. Khách sửa trip, ghi `memberQrs`, đọc/ghi `friends` ❌.
-3. `memberSecrets`: chỉ Admin CRUD (kể cả trong `writeBatch` tạo chuyến) và validate `[a-z0-9]{12,32}`; khách đọc/list/ghi/xóa ❌.
-4. `bindings/{uid}`: tạo/cập nhật đúng mã ✅ (kể cả re-bind cùng UID sau khi xoay mã); sai mã/sai UID/chưa auth/trip không tồn tại/Admin tự bind ❌; `get` binding khác UID ❌; `list` cho khách ❌; `get` sau khi xoay mã hoặc bị gỡ khỏi `trip.memberIds` → `permission-denied` ❌.
-5. `expenses`: khách bind là `chung` tạo/sửa/xóa khoản của `chung` (kể cả từ UID thứ 2 bind vào `chung`) ✅; chặn khi `allowGuestExpenses=false`, `locked=true`, bị thu hồi mã hoặc gỡ khỏi chuyến, hoặc sửa/xóa khoản người khác/admin/legacy ❌; Admin sửa được khoản chi sau khi gỡ người tạo ✅.
-6. `payments`: khách bind là `chung` tạo `chung→sang` và `sang→chung` ✅, chặn `mo→phung` ❌; chỉ người ghi hoàn tác được ✅; cấm `update` mọi vai trò ❌; chặn khi khóa/thu hồi/gỡ khỏi chuyến ❌; Admin xóa được mọi payment kể cả legacy ✅.
-7. Schema & đường dẫn ngoài (`other/x`) ❌.
+1. Khách `get` trip ✅; `list` trips ❌.
+2. Khách sửa trip (đổi STK, bật `allowGuestExpenses`, mở `locked`) ❌; khách ghi `memberQrs` ❌; khách đọc/ghi `friends` ❌.
+3. Khách thêm chi khi `allowGuestExpenses=false` ❌; `true` + `createdBy='guest'` ✅; giả `createdBy='admin'` ❌; `payerId` hoặc `participantIds` ngoài `memberIds` ❌; khi `locked` ❌.
+4. Khách sửa/xóa khoản `createdBy='admin'` ❌ (kể cả khi bật cho phép nhập); khách đổi `createdBy` khi sửa ❌.
+5. Payment: khách tạo khi chưa khóa ✅, khi khóa ❌; `fromId == toId` ❌; khách xóa payment `markedBy='admin'` ❌; update ❌.
+6. Schema: `name` > 100 ký tự, `amount` âm / float, field lạ, `fixedAmounts` có key ngoài `participantIds`, `createdAt` giả ❌.
+7. Admin làm được hết với dữ liệu hợp lệ; vẫn bị chặn khi sai schema hoặc đổi `createdAt`.
+8. Đường dẫn ngoài các collection trên ❌.
 
 ### 12.3 Thủ công
-- Chạy dev + emulator hoặc preview; kiểm tra trên **iOS Safari**, **Android Chrome** và **Zalo/Messenger in-app browser**:
-  - Mở `ExpenseForm` (bật *"Chia không đều"* và *"Thêm chi tiết"*) + form bạn bè `AdminFriends` + `MarkPaidSheet` → kiểm tra bàn phím ảo không đẩy lệch trang hay che ô nhập, nút Lưu sticky bấm được.
-  - Mở link cá nhân `?k=` → xác minh xong biến mất khỏi URL, chuyển sang trình duyệt khác mở lại link cá nhân vẫn sửa được khoản của mình; mở link chung xem chế độ chỉ xem; test Admin xoay mã thu hồi quyền ghi tức thì.
-  - Kiểm tra console sạch trên cả trang khách và Google Sign-In Admin dưới `Content-Security-Policy-Report-Only` trước khi đổi sang enforce.
-  - Quét QR thật bằng app ngân hàng; chế độ máy bay fallback sang copy chữ; Web Share sang Messenger/Zalo; `npm run build` sạch lỗi.
+- Chạy dev + emulator; tạo chuyến bằng admin; mở `/t/<id>` trong tab ẩn danh trên điện thoại (cùng Wi-Fi, `vite --host`).
+- 2 thiết bị cùng mở thấy cập nhật realtime; bật chế độ máy bay vẫn xem được, QR chuyển sang khối copy.
+- **Quét QR thật bằng app ngân hàng** kiểm tra STK, số tiền, nội dung không dấu (không cần chuyển thật).
+- Nút Chia sẻ trên iOS Safari / Android Chrome mở được menu share sang Messenger/Zalo.
+- Viewport 375px và desktop (Drawer ↔ Dialog); thao tác một tay.
+- `npm run build` sạch lỗi TS.
 
 ---
 
