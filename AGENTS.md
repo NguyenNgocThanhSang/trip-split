@@ -4,7 +4,19 @@ Project rules for coding agents (Antigravity reads this file; Claude Code import
 
 ## Project status
 
-Pre-implementation: no code, build system, or tests yet, and the directory is not a git repo. **TripSplit** is a mobile-first web app for splitting group trip expenses among a small circle of friends (~10–15 users, 4–15 people per trip). Once the stack is scaffolded, update this file with real build/lint/test commands.
+MVP implemented and deployed. **TripSplit** is a mobile-first web app for splitting group trip expenses among a small circle of friends (~10–15 users, 4–15 people per trip).
+
+Commands (`package.json`):
+- `npm run dev` — Vite dev server (uses `.env.local`, Firebase Emulator)
+- `npm run emulators` — Firebase Auth + Firestore Emulators (`demo-tripsplit`)
+- `npm test` — Vitest unit & component tests (`src/**`, `scripts/**`)
+- `npm run test:rules` — Firestore rules & data tests on the Firestore Emulator (`tests/`)
+- `npm run typecheck` — `tsc --noEmit -p tsconfig.app.json`
+- `npm run lint` — ESLint
+- `npm run build` — `tsc -b && vite build` → `dist/`; fails fast if the Firebase config points at the emulator / `demo-*` (`scripts/build-env-guard.ts`)
+- `npm run deploy:rules` — deploy `firestore.rules` to production (`-P prod`)
+
+Deploy & CI/CD: see **`docs/DEPLOY.md`** (environments, env vars, manual deploy checklist, rollback).
 
 Documents:
 - **`DESIGN.md` — the agreed design and the source of truth for implementation** (decisions, data model, security rules, split/settlement logic, screens, build order, tests). Follow it unless the user changes a decision; when a decision changes, update `DESIGN.md` too.
@@ -15,7 +27,7 @@ Documents:
 
 - React + Vite + TypeScript + Tailwind CSS + shadcn/ui (lucide-react icons), React Router. Pure static SPA, no backend.
 - Firebase **Spark (free) plan only**: Firestore + Auth. **No Cloud Functions, no Cloud Storage** — both require the paid Blaze plan. (Supabase was rejected: its free tier pauses after ~7 days idle.)
-- Hosting: **Cloudflare Pages**, auto-deployed from GitHub (`public/_redirects` for SPA fallback, `public/_headers` for security headers).
+- Hosting: **Cloudflare Workers Static Assets**, auto-deployed from GitHub via Workers Builds (`wrangler.jsonc`: `assets.directory = "./dist"`, `not_found_handling = "single-page-application"` for SPA fallback — do not add `public/_redirects`, it loops on Workers; `public/_headers` for security headers). CI: `.github/workflows/ci.yml` runs checks on every PR (no deploy).
 - Tests: Vitest for `src/lib`; `@firebase/rules-unit-testing` on the Firestore Emulator for `firestore.rules`.
 
 ## Hard constraints
