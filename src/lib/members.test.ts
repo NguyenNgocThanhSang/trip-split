@@ -21,20 +21,6 @@ describe('memberInUse', () => {
     expect(memberInUse('phung', [], basePayments)).toBe(true)
   })
 
-  it('trả về true khi thành viên chỉ xuất hiện ở trường createdByMemberId của khoản chi hoặc thanh toán', () => {
-    // Ngăn admin gỡ thành viên khi họ là tác giả bản ghi (dù không nằm trong payer/participants)
-    expect(
-      memberInUse(
-        'mo',
-        [{ id: 'e2', amount: 50000, payerId: 'sang', participantIds: ['sang'], fixedAmounts: {}, createdByMemberId: 'mo' }],
-        [],
-      ),
-    ).toBe(true)
-    expect(
-      memberInUse('lan', [], [{ id: 'p2', fromId: 'mo', toId: 'phung', amount: 50000, createdByMemberId: 'lan' }]),
-    ).toBe(true)
-  })
-
   it('trả về false khi thành viên chưa xuất hiện trong bất kỳ khoản chi hay thanh toán nào', () => {
     expect(memberInUse('lan', baseExpenses, basePayments)).toBe(false)
     expect(memberInUse('sang', [], [])).toBe(false)

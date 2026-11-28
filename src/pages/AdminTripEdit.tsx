@@ -14,7 +14,6 @@ import {
   Users,
 } from 'lucide-react'
 import { toast } from 'sonner'
-import { MemberLinksSection } from '@/components/MemberLinksSection'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import {
   AlertDialog,
@@ -35,11 +34,6 @@ import { Switch } from '@/components/ui/switch'
 import { useExpenses } from '@/data/expenses'
 import { db } from '@/data/firebase'
 import { type FriendsState, useFriends } from '@/data/friends'
-import {
-  generateMissingSecrets,
-  rotateMemberSecret,
-  useMemberSecrets,
-} from '@/data/memberAccess'
 import { usePayments } from '@/data/payments'
 import {
   createTrip,
@@ -105,7 +99,6 @@ function TripEditorForm({
   const [isSaving, setIsSaving] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
-  const secretsState = useMemberSecrets(initialTrip?.id ?? '', Boolean(initialTrip))
 
   const friendsById = useMemo(
     () => new Map(friendsState.friends.map((f) => [f.id, f])),
@@ -292,7 +285,7 @@ function TripEditorForm({
         toast.success('Đã tạo chuyến đi mới.')
         navigate(`/admin/trips/${newTripId}`, { replace: true })
       } else {
-        await updateTrip(db, initialTrip.id, tripInput, pendingQrs, initialTrip.memberIds)
+        await updateTrip(db, initialTrip.id, tripInput, pendingQrs)
         setPendingQrs({})
         toast.success('Đã lưu thay đổi.')
       }
@@ -577,40 +570,6 @@ function TripEditorForm({
           {isSaving ? 'Đang lưu...' : 'Lưu'}
         </Button>
       </form>
-
-      {initialTrip && (
-        <Card>
-          <CardContent className="flex flex-col gap-3">
-            <div>
-              <h2 className="text-sm font-semibold">Link cá nhân từng thành viên</h2>
-              <p className="text-xs text-muted-foreground">
-                Mỗi người một link riêng để xác nhận đã chuyển hoặc thêm chi tiêu — không gửi vào nhóm chung.
-              </p>
-            </div>
-            <MemberLinksSection
-              tripId={initialTrip.id}
-              members={initialTrip.members}
-              secretsState={secretsState}
-              onGenerateMissing={async () => {
-                await generateMissingSecrets(
-                  db,
-                  initialTrip.id,
-                  initialTrip.memberIds,
-                  secretsState.secrets,
-                )
-              }}
-              onRotateSecret={async (memberId) => {
-                await rotateMemberSecret(
-                  db,
-                  initialTrip.id,
-                  memberId,
-                  secretsState.secrets[memberId]?.code,
-                )
-              }}
-            />
-          </CardContent>
-        </Card>
-      )}
 
       {initialTrip && (
         <Card className="border-destructive/40">

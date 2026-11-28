@@ -18,8 +18,6 @@ export interface ExpenseInput {
   participantIds: string[]
   /** Bản đồ số tiền cố định riêng theo từng `memberId` (VND nguyên ≥ 0; rỗng nếu chia đều). */
   fixedAmounts: Record<string, VND>
-  /** Mã thành viên đã nhập khoản chi này (tùy chọn, dùng kiểm tra ràng buộc xóa thành viên). */
-  createdByMemberId?: string
 }
 
 /** Dữ liệu đầu vào của một giao dịch đã chuyển tiền thực tế trong sổ cái thanh toán. */
@@ -32,8 +30,6 @@ export interface PaymentInput {
   toId: string
   /** Số tiền thực tế đã chuyển (số nguyên VND > 0, cho phép trả một phần). */
   amount: VND
-  /** Mã thành viên đã ghi nhận giao dịch này (tùy chọn, dùng kiểm tra ràng buộc xóa thành viên). */
-  createdByMemberId?: string
 }
 
 /** Một giao dịch đề xuất hoặc đã trả trong kế hoạch thanh toán giữa hai thành viên. */

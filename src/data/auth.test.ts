@@ -81,20 +81,4 @@ describe('adminStateFor', () => {
       email: 'chung@example.com',
     })
   })
-
-  it('coi phiên đăng nhập ẩn danh (isAnonymous=true) là signed-out để không báo lỗi sai tài khoản ở /admin', () => {
-    expect(
-      adminStateFor(
-        { uid: 'anon-uid-789', email: null, isAnonymous: true },
-        'admin-uid-123',
-      ),
-    ).toEqual({
-      status: 'signed-out',
-    })
-    expect(
-      adminStateFor({ uid: 'anon-uid-789', email: null, isAnonymous: true }, ''),
-    ).toEqual({
-      status: 'signed-out',
-    })
-  })
 })
